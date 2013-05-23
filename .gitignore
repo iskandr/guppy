@@ -1,0 +1,13 @@
+*.pyc
+*.so
+bin/
+build/
+include/
+lib/
+local/
+sparrow_wrap.cpp
+_core.py
+perf.data
+perf.data.old
+python-src
+sparrow.egg-info
