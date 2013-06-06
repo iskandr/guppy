@@ -13,12 +13,27 @@ import time
 def timeit(f):
   st = time.time()
   f()
+  pycuda.autoinit.context.synchronize()
   ed = time.time()
   print 'Operation %s completed in %.3f seconds' % (f, ed - st)
 
 
-def roundup(a, b):
+def div_up(a, b):
   return int(math.ceil(float(a) / float(b)))
+
+THREADS_PER_BLOCK = 1024
+MAX_DIM = None
+
+def get_block_dims():
+  global MAX_DIM
+  device = drv.Device(0)
+  attr = device.get_attributes()
+  MAX_DIM = (attr[drv.device_attribute.MAX_BLOCK_DIM_X],
+             attr[drv.device_attribute.MAX_BLOCK_DIM_Y],
+             attr[drv.device_attribute.MAX_BLOCK_DIM_Z],)
+  MAX_DIM = (512, 64, 4)
+
+
 
 class ParFunction(object):
   def __init__(self, name, args, indices, source):
@@ -39,25 +54,18 @@ class ParFunction(object):
 
 def generate_source(fn):
   tmpl = mako.template.Template('''
-inline __device__ void ${fn.name}(${fn.local_arg_decl}) {
+__device__ __forceinline__ void ${fn.name}(${fn.local_arg_decl}) {
   ${fn.source}
 }
 __global__ void ${fn.name}_kernel(${fn.global_arg_decl}) {
-  // compute function index
-  const int tx = threadIdx.x;
-  const int ty = threadIdx.y;
-  const int tz = threadIdx.z;
-  const int bx = blockIdx.x;
-  const int by = blockIdx.y;
-  const int bz = blockIdx.z;
+  int idx_0 = 4 * (blockIdx.x * blockDim.x + threadIdx.x);
+  // const int idx_1 = blockIdx.y * blockDim.y + threadIdx.y;
+  const int idx_1 = 0;
+  //const int idx_2 = bz * blockDim.z + tz;
+  const int idx_2 = 0;
 
-  const int idx_0 = bx * blockDim.x + tx;
-  const int idx_1 = by * blockDim.y + ty;
-  const int idx_2 = bz * blockDim.z + tz;
-
-  if (idx_0 >= max_idx_0) { return; }
-  if (idx_1 >= max_idx_1) { return; }
-  if (idx_2 >= max_idx_2) { return; }
+  //if (idx_1 >= max_idx_1) { return; }
+  //if (idx_2 >= max_idx_2) { return; }
 
   ${fn.name}(${fn.arg_vals});
 }
@@ -84,33 +92,27 @@ def parfor(fn, fixed_args, indices):
   kernel = module.get_function(fn.name + '_kernel')
 
   # compute a block and grid to execute fn
-  device = drv.Device(0)
-  attr = device.get_attributes()
+  block = pack_block(indices, MAX_DIM, THREADS_PER_BLOCK)
+  grid = tuple([div_up(indices[0], block[0]),
+                div_up(indices[1], block[1]),
+                div_up(indices[2], block[2])])
 
-  lim = (attr[drv.device_attribute.MAX_BLOCK_DIM_X],
-         attr[drv.device_attribute.MAX_BLOCK_DIM_Y],
-         attr[drv.device_attribute.MAX_BLOCK_DIM_Z],)
-
-  threads_per_block = attr[drv.device_attribute.MAX_THREADS_PER_BLOCK]
-  block = pack_block(indices, lim, threads_per_block)
-  grid = tuple([roundup(indices[0], block[0]),
-                    roundup(indices[1], block[1]),
-                    roundup(indices[2], block[2])])
-
-  print block, grid
   int_idx = [N.int32(idx) for idx in indices]
   args = list(fixed_args) + int_idx
 
-
+  print block, grid
   kernel(*args, grid=grid, block=block)
   pycuda.autoinit.context.synchronize()
 
 if __name__ == '__main__':
   import pycuda.autoinit
+  get_block_dims()
+
   fn = ParFunction('add_array',
                    ['a', 'b', 'c'],
                    ['i', 'j', 'k'],
-                   'c[max_idx_0 * i + j] = a[max_idx_0 * i + j] + b[max_idx_0 * i + j];')
+                   'c[i] = a[i] + b[i];')
+                   # 'c[max_idx_0 * i + j] = a[max_idx_0 * i + j] + b[max_idx_0 * i + j];')
 
   print generate_source(fn)
 
@@ -119,7 +121,14 @@ if __name__ == '__main__':
     a = to_gpu(N.ones((dim, dim), dtype=N.float32))
     b = to_gpu(N.ones((dim, dim), dtype=N.float32))
     c = to_gpu(N.ones((dim, dim), dtype=N.float32))
-    timeit(lambda: parfor(fn, (a, b, c), [dim, dim, 1]))
+    def gpuarray_add():
+      c = a + b
+
+    def parfor_add():
+      parfor(fn, (a, b, c), [dim * dim, 1, 1])
+
+    timeit(gpuarray_add)
+    timeit(parfor_add)
 
 
   assert(N.all(c.get() == 2))
