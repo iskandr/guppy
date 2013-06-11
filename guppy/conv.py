@@ -1,13 +1,15 @@
 #!/usr/bin/env python
 
-from guppy import util
+import pycuda.autoinit
+
+import glob
+from PIL import Image
+
 from mako import template
 from pycuda import curandom, compiler, gpuarray
-import glob
 import numpy as N
-import pycuda.autoinit
 import pylab
-from PIL import Image
+
 
 NUM_IMAGES = 16
 NUM_FILTERS = 96
