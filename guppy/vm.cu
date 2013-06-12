@@ -1,5 +1,6 @@
-#include <stdio.h> 
+#include <stdio.h>
 #include <cuda.h>
+#include <time.h>
 
 #define BYTECODE_OP static inline __device__
 
@@ -10,6 +11,21 @@ BYTECODE_OP void load_slice() {
 BYTECODE_OP void add(void* a, void *b) {
 
 }
+
+double Now() {
+    timespec tp;
+    clock_gettime(CLOCK_MONOTONIC, &tp);
+    return tp.tv_sec + 1e-9 * tp.tv_nsec;
+}
+
+#define TIMEOP(op)\
+{\
+  double st = Now();\
+  op;\
+  double ed = Now();\
+  fprintf(stderr, "%s finished in %.f seconds.\n", #op, end - start);\
+}
+
 
 enum OP_CODE { ADD_VV, ADD_VS, ADD_SV, BAD };
 
@@ -91,7 +107,6 @@ __global__ void run(float** values, int n_args, Op* program, int n_ops) {
   int stopIdx = startIdx + blockDim.x; 
 
   for (int pc = 0; pc < n_ops; ++pc) {
-    
     Op op = program[pc];
     switch (op.code) { 
 	    case ADD_VV: {
@@ -107,8 +122,12 @@ __global__ void run(float** values, int n_args, Op* program, int n_ops) {
 
 #define THREADS_PER_BLOCK 512
 
-int main(char** argv, int argc) { 
-  const int N = 400 * THREADS_PER_BLOCK;
+int main(int argc, const char** argv) { 
+  int N = 400 * THREADS_PER_BLOCK;
+  if (argc > 1) {
+    N = strtol(argv[1], NULL, 10);
+  }
+    
   Vec a(N, 1.0);
   Vec b(N, 2.0);
   Vec c(N);
@@ -129,7 +148,11 @@ int main(char** argv, int argc) {
   cudaMalloc(&d_program, sizeof(Op) * n_ops);
   cudaMemcpy(d_program, h_program, sizeof(Op) * n_ops, cudaMemcpyHostToDevice );
 
-  run<<<400, THREADS_PER_BLOCK>>>(d_values, n_values, d_program, n_ops);
+  double st = Now();
+  run<<<N / THREADS_PER_BLOCK, THREADS_PER_BLOCK>>>(d_values, n_values, d_program, n_ops);
+  cudaDeviceSynchronize();
+  double ed = Now();
+  fprintf(stderr, "%.5f seconds\n", ed -st);
 
   float* ad = a.get_host_data();
   printf("%f %f %f\n", ad[0], ad[1], ad[2]);
