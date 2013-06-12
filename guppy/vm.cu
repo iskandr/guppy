@@ -58,7 +58,7 @@ struct Program {
 		return *this;
 	}
 	Program& StoreSlice(int src, int dst) {
-		_ops.push_back(Op(LOAD_SLICE, src, dst, 0));
+		_ops.push_back(Op(STORE_SLICE, src, dst, 0));
 		return *this;
 	}
 
@@ -164,34 +164,31 @@ __global__ void run(
     Op op = program[pc];
     switch (op.code) {
     case LOAD_SLICE: {
-      float* dst = registers[op.y] + threadIdx.x;
-      float* src = values[op.x] + startIdx + threadIdx.x;
-      *dst = *src;
+      registers[op.y][threadIdx.x] = values[op.x][startIdx + threadIdx.x];
     }
     break;
 
     case STORE_SLICE: {
-      float* dst = values[op.y] + startIdx + threadIdx.x;
-      float* src = registers[op.x] + threadIdx.x;
-      *dst = *src;
+      values[op.y][startIdx + threadIdx.x] = registers[op.x][threadIdx.x];
     }
     break;
 
     case LOAD_SCALAR: {
-
+    	registers[op.y][threadIdx.x] = constants[op.x];
     }
     break;
 
     case STORE_SCALAR: {
+      float value = constants[op.x];
+      values[op.y][startIdx + threadIdx.x] = value;
 
     }
     break;
 
 	case ADD: {
-	    float* x = registers[op.x] + threadIdx.x; //+ startIdx + threadIdx.x;
-	    float* y = registers[op.y] + threadIdx.x; //+ startIdx + threadIdx.x;
-	    float* z = values[op.z] + threadIdx.x; //+ startIdx + threadIdx.x;
-        *z = *x + *y;
+	    float x = registers[op.x][threadIdx.x]; //+ startIdx + threadIdx.x;
+	    float y = registers[op.y][threadIdx.x]; //+ startIdx + threadIdx.x;
+	    registers[op.z][threadIdx.x] = x + y;
       }
 	break;
     }  
@@ -239,8 +236,10 @@ int main(int argc, const char** argv) {
   fprintf(stderr, "%.5f seconds\n", ed -st);
 
   float* ad = a.get_host_data();
-  printf("%f %f %f\n", ad[0], ad[1], ad[2]);
+  printf("%f %f %f\n", ad[0], ad[10], ad[20]);
+  float* bd = b.get_host_data();
+  printf("%f %f %f\n", bd[0], bd[10], bd[20]);
   float* cd = c.get_host_data();
-  printf("%f %f %f\n", cd[0], cd[1], cd[2]);
+  printf("%f %f %f\n", cd[0], cd[10], cd[20]);
   return 0; 
 }
