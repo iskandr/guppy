@@ -31,10 +31,10 @@ struct Vec {
   bool _gpu_dirty;
 
   void init(int n) {
-	_n = n;
-	_nbytes = sizeof(float) * n;
-	_host_data = new float[n];
-	 cudaMalloc(&_gpu_data, this->_nbytes);
+    _n = n;
+    _nbytes = sizeof(float) * n;
+    _host_data = new float[n];
+	  cudaMalloc(&_gpu_data, this->_nbytes);
     _host_dirty = false;
     _gpu_dirty = true;
   }
@@ -44,17 +44,17 @@ struct Vec {
   }
 
   Vec (int n, float fill_value) {
-	this->init(n);
-	for (int i = 0; i < n; ++i) {
-	  _host_data[i] = fill_value;
-	}
+    this->init(n);
+    for (int i = 0; i < n; ++i) {
+      _host_data[i] = fill_value;
+    }
   }
 
   float* get_gpu_data() {
      if (_gpu_dirty) { this->copy_to_gpu(); }
-	 _host_dirty = true;
-	 _gpu_dirty = false;
-	 return _gpu_data;
+     _host_dirty = true;
+     _gpu_dirty = false;
+     return _gpu_data;
   }
 
   float* get_host_data() {
@@ -85,7 +85,6 @@ const int STACK_DEPTH = 100;
 
 
 __global__ void run(float** values, int n_args, Op* program, int n_ops) {
-  
   void* stack[STACK_DEPTH];
   int stack_pos = -1; 
   int startIdx = blockIdx.x * blockDim.x; 
@@ -96,12 +95,11 @@ __global__ void run(float** values, int n_args, Op* program, int n_ops) {
     Op op = program[pc];
     switch (op.code) { 
 	    case ADD_VV: {
-
-	      float* x = values[op.x] + sizeof(float)*startIdx + threadIdx.x;
-	      float* y = values[op.y] + sizeof(float)*startIdx + threadIdx.x;
-          float* z = values[op.dest] + sizeof(float)*startIdx + threadIdx.x;
-          *z = *x + *y;
-        }
+	      float* x = values[op.x] + startIdx + threadIdx.x;
+	      float* y = values[op.y] + startIdx + threadIdx.x;
+        float* z = values[op.dest] + startIdx + threadIdx.x;
+        *z = *x + *y;
+      }
 	    break;
     }  
   }
@@ -115,7 +113,7 @@ int main(char** argv, int argc) {
   Vec b(N, 2.0);
   Vec c(N);
   
-  int n_values = 3;
+  const int n_values = 3;
   float* h_values[n_values];
   h_values[0]= a.get_gpu_data();
   h_values[1] = b.get_gpu_data();
@@ -126,13 +124,15 @@ int main(char** argv, int argc) {
   cudaMemcpy(d_values, h_values, sizeof(float*) * n_values, cudaMemcpyHostToDevice);
 
   int n_ops = 1;
-  Op h_program[1] = {Op(ADD_VV, 0, 1, 2)};
+  Op h_program[] = {Op(ADD_VV, 0, 1, 2)};
   Op* d_program;
   cudaMalloc(&d_program, sizeof(Op) * n_ops);
   cudaMemcpy(d_program, h_program, sizeof(Op) * n_ops, cudaMemcpyHostToDevice );
 
-  run<<<400, 512>>>(d_values, n_values, d_program, n_ops);
+  run<<<400, THREADS_PER_BLOCK>>>(d_values, n_values, d_program, n_ops);
 
+  float* ad = a.get_host_data();
+  printf("%f %f %f\n", ad[0], ad[1], ad[2]);
   float* cd = c.get_host_data();
   printf("%f %f %f\n", cd[0], cd[1], cd[2]);
   return 0; 
