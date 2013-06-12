@@ -110,7 +110,6 @@ __global__ void run(float** values, int n_args, Op* program, int n_ops) {
 #define THREADS_PER_BLOCK 512
 
 int main(char** argv, int argc) { 
-
   const int N = 400 * THREADS_PER_BLOCK;
   Vec a(N, 1.0);
   Vec b(N, 2.0);
@@ -132,7 +131,7 @@ int main(char** argv, int argc) {
   cudaMalloc(&d_program, sizeof(Op) * n_ops);
   cudaMemcpy(d_program, h_program, sizeof(Op) * n_ops, cudaMemcpyHostToDevice );
 
-  run<<400, 512>>(d_values, n_values, d_program, n_ops);
+  run<<<400, 512>>>(d_values, n_values, d_program, n_ops);
 
   float* cd = c.get_host_data();
   printf("%f %f %f\n", cd[0], cd[1], cd[2]);
