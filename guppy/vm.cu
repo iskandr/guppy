@@ -1,7 +1,9 @@
 #include <stdio.h>
 #include <cuda.h>
 #include <time.h>
+#include <vector>
 
+/*
 #define BYTECODE_OP static inline __device__
 
 BYTECODE_OP void load_slice() {
@@ -11,7 +13,7 @@ BYTECODE_OP void load_slice() {
 BYTECODE_OP void add(void* a, void *b) {
 
 }
-
+*/
 double Now() {
     timespec tp;
     clock_gettime(CLOCK_MONOTONIC, &tp);
@@ -27,16 +29,67 @@ double Now() {
 }
 
 
-enum OP_CODE { ADD_VV, ADD_VS, ADD_SV, BAD };
+enum OP_CODE {
+  LOAD_SLICE, STORE_SLICE,    // load slice of global arrays into shared vector
+  LOAD_SCALAR, STORE_SCALAR, // distribute scalar across elements of shared vector
+  ADD, SUB, MUL, DIV,        // arithmetic between shared vectors
+  BAD
+};
 
 struct Op {
-  Op() : code(BAD), x(0), y(0), dest(0) {}
-  Op(OP_CODE code, int x, int y, int dest) : code(code), x(x), y(y), dest(dest)  {}
+  Op() : code(BAD), x(0), y(0), z(0) {}
+  Op(OP_CODE code, int x, int y, int z) : code(code), x(x), y(y), z(z)  {}
 
   OP_CODE code; 
-  int x, y;
-  int dest;
+  int x, y, z;
 };
+
+struct Program {
+	std::vector<Op> _ops;
+	Op* _gpu_ptr;
+
+
+	Program& Add(int x, int y, int z) {
+		_ops.push_back(Op(ADD, x, y, z));
+		return *this;
+	}
+	Program& LoadSlice(int src, int dst) {
+		_ops.push_back(Op(LOAD_SLICE, src, dst, 0));
+		return *this;
+	}
+	Program& StoreSlice(int src, int dst) {
+		_ops.push_back(Op(LOAD_SLICE, src, dst, 0));
+		return *this;
+	}
+
+	int size() {
+      return _ops.size();
+	}
+
+	int nbytes () {
+	  return sizeof(Op) * this->size();
+	}
+
+	Op* host_ptr() {
+	  return &_ops[0];
+	}
+	Op* to_gpu() {
+	  if (_gpu_ptr) {
+		  return _gpu_ptr;
+	  }
+	  cudaMalloc(&_gpu_ptr, this->nbytes());
+	  cudaMemcpy(_gpu_ptr, this->host_ptr(), this->nbytes(), cudaMemcpyHostToDevice);
+	  return _gpu_ptr;
+	}
+
+	Program() : _gpu_ptr(NULL) {}
+	~Program () {
+	  if (_gpu_ptr) {
+	    cudaFree(_gpu_ptr);
+	  }
+	}
+};
+
 
 struct Vec {
   int _n;
@@ -50,7 +103,7 @@ struct Vec {
     _n = n;
     _nbytes = sizeof(float) * n;
     _host_data = new float[n];
-	  cudaMalloc(&_gpu_data, this->_nbytes);
+	cudaMalloc(&_gpu_data, this->_nbytes);
     _host_dirty = false;
     _gpu_dirty = true;
   }
@@ -96,26 +149,51 @@ struct Vec {
 
 };
 
+#define REGISTER_WIDTH 128
+#define NUM_REGISTERS 16
 
-const int STACK_DEPTH = 100; 
-
-
-__global__ void run(float** values, int n_args, Op* program, int n_ops) {
-  void* stack[STACK_DEPTH];
-  int stack_pos = -1; 
+__global__ void run(
+		Op* program, int n_ops,
+		float** values, int n_args,
+		float* constants, int n_consts) {
   int startIdx = blockIdx.x * blockDim.x; 
-  int stopIdx = startIdx + blockDim.x; 
+  // int stopIdx = startIdx + blockDim.x;
+  __shared__ float registers[NUM_REGISTERS][REGISTER_WIDTH];
 
   for (int pc = 0; pc < n_ops; ++pc) {
     Op op = program[pc];
-    switch (op.code) { 
-	    case ADD_VV: {
-	      float* x = values[op.x] + startIdx + threadIdx.x;
-	      float* y = values[op.y] + startIdx + threadIdx.x;
-        float* z = values[op.dest] + startIdx + threadIdx.x;
+    switch (op.code) {
+    case LOAD_SLICE: {
+      float* dst = registers[op.y] + threadIdx.x;
+      float* src = values[op.x] + startIdx + threadIdx.x;
+      *dst = *src;
+    }
+    break;
+
+    case STORE_SLICE: {
+      float* dst = values[op.y] + startIdx + threadIdx.x;
+      float* src = registers[op.x] + threadIdx.x;
+      *dst = *src;
+    }
+    break;
+
+    case LOAD_SCALAR: {
+
+    }
+    break;
+
+    case STORE_SCALAR: {
+
+    }
+    break;
+
+	case ADD: {
+	    float* x = registers[op.x] + threadIdx.x; //+ startIdx + threadIdx.x;
+	    float* y = registers[op.y] + threadIdx.x; //+ startIdx + threadIdx.x;
+	    float* z = values[op.z] + threadIdx.x; //+ startIdx + threadIdx.x;
         *z = *x + *y;
       }
-	    break;
+	break;
     }  
   }
 }
@@ -142,14 +220,20 @@ int main(int argc, const char** argv) {
   cudaMalloc(&d_values, sizeof(float*) * n_values);
   cudaMemcpy(d_values, h_values, sizeof(float*) * n_values, cudaMemcpyHostToDevice);
 
-  int n_ops = 1;
-  Op h_program[] = {Op(ADD_VV, 0, 1, 2)};
-  Op* d_program;
-  cudaMalloc(&d_program, sizeof(Op) * n_ops);
-  cudaMemcpy(d_program, h_program, sizeof(Op) * n_ops, cudaMemcpyHostToDevice );
+
+  Program h_program;
+
+  h_program.
+    LoadSlice(0,0).
+    LoadSlice(1,1).
+    Add(0,1,2).
+    StoreSlice(2,2);
 
   double st = Now();
-  run<<<N / THREADS_PER_BLOCK, THREADS_PER_BLOCK>>>(d_values, n_values, d_program, n_ops);
+  run<<<N / THREADS_PER_BLOCK, THREADS_PER_BLOCK>>>(
+		  h_program.to_gpu(), h_program.size(),
+		  d_values, n_values,
+		  0, 0);
   cudaDeviceSynchronize();
   double ed = Now();
   fprintf(stderr, "%.5f seconds\n", ed -st);
