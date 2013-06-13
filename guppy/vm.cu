@@ -101,9 +101,10 @@ struct Vec {
 
   void init(int n) {
     _n = n;
-    _nbytes = sizeof(float) * n;
-    _host_data = new float[n];
-	cudaMalloc(&_gpu_data, this->_nbytes);
+    _nbytes = sizeof(float) * n
+    		;
+     cudaMallocHost(&_host_data, this->_nbytes);
+     cudaMalloc(&_gpu_data, this->_nbytes);
     _host_dirty = false;
     _gpu_dirty = true;
   }
@@ -143,15 +144,15 @@ struct Vec {
   }
 
   ~Vec() {
-	  cudaFree(this->_gpu_data);
-	  delete[] this->_host_data;
+	  cudaFree(_gpu_data);
+	  cudaFreeHost(_host_data);
   }
 
 };
 
 // NOT YET USING 2D blocks
-#define THREADS_X 64
-#define THREADS_Y 8
+#define THREADS_X 512
+#define THREADS_Y 1
 
 
 #define THREADS_PER_BLOCK (THREADS_X * THREADS_Y)
@@ -164,11 +165,12 @@ __global__ void run(
 		Op* program, long n_ops,
 		float** values, long n_args,
 		float* constants, long n_consts) {
-  // int stopIdx = startIdx + blockDim.x;
+
   __shared__ float registers[NUM_REGISTERS][REGISTER_WIDTH];
+
   int block_offset = blockIdx.x * blockDim.x;
   int local_idx = threadIdx.x;
-  int global_idx = block_offset + local_idx;
+int global_idx = block_offset + local_idx;
 
   for (int pc = 0; pc < n_ops; ++pc) {
     Op op = program[pc];
