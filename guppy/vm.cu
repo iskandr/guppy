@@ -188,8 +188,8 @@ struct Vec {
 
 };
 
-static const int kThreadsX = 8;
-static const int kThreadsY = 8;
+static const int kThreadsX = 16;
+static const int kThreadsY = 16;
 static const int kOpsPerThread = 8;
 
 static const int kThreadsPerBlock = kThreadsX * kThreadsY;
@@ -209,14 +209,16 @@ __global__ void run(Op* program,
   const int block_offset = blockIdx.y * gridDim.x + blockIdx.x;
   const int local_idx = threadIdx.y * blockDim.x + threadIdx.x;
   const int block_idx = block_offset * kRegisterWidth;
+  const int global_idx = block_idx + (local_idx * kOpsPerThread);
+  const int end_i = min(kOpsPerThread, (2 << 24) - global_idx);
 
   for (int pc = 0; pc < n_ops; ++pc) {
     Op op = program[pc];
     switch (op.code) {
     case LOAD_SLICE: {
       float* reg = &registers[op.y][local_idx * kOpsPerThread];
-      const float* src = values[op.x] + block_idx + (local_idx * kOpsPerThread);
-      for (int i = 0; i < kOpsPerThread; ++i) {
+      const float* src = &values[op.x][global_idx];
+      for (int i = 0; i < end_i; ++i) {
         reg[i] = src[i];
       }
       break;
@@ -224,8 +226,8 @@ __global__ void run(Op* program,
 
     case STORE_SLICE: {
       float* reg = &registers[op.y][local_idx * kOpsPerThread];
-      float* dst = values[op.x] + block_idx + (local_idx * kOpsPerThread);
-      for (int i = 0; i < kOpsPerThread; ++i) {
+      float* dst = &values[op.x][global_idx];
+      for (int i = 0; i < end_i; ++i) {
         dst[i] = reg[i];
       }
       break;
@@ -265,7 +267,8 @@ int main(int argc, const char** argv) {
 
   h_program.LoadSlice(0, 0).LoadSlice(1, 1).Add(0, 1, 2).StoreSlice(2, 2);
 
-  for (int i = 1; i <= N; i *= 2) {
+//  for (int i = 1; i <= N; i *= 2) {
+  int i = N;
     int total_blocks = divup(i, kThreadsPerBlock * kOpsPerThread);
     dim3 blocks;
     blocks.x = int(ceil(sqrt(total_blocks)));
@@ -285,7 +288,7 @@ int main(int argc, const char** argv) {
     CHECK_CUDA();
     double ed = Now();
     fprintf(stderr, "%d elements in %.5f seconds; %.5f GFLOPS\n", i, ed - st, i * 1e-9 / (ed - st));
-  }
+//  }
 
   float* ad = a.get_host_data();
   printf("%f %f %f\n", ad[0], ad[10], ad[N - 200]);
