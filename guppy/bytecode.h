@@ -3,27 +3,41 @@
 
 #include <stdint.h>
 
-#define PACKED
+
+
 
 enum OP_CODE {
-  LOAD_SLICE,
-  STORE_SLICE,    // load slice of global arrays into shared vector
-  LOAD_SCALAR,
-  STORE_SCALAR, // distribute scalar across elements of shared vector
-  ADD,
+
+  LOAD_SLICE,       // load/store global 1D array
+  STORE_SLICE,
+  LOAD_ROW_SLICE,   // load/store rows of global 2D array
+  STORE_ROW_SLICE,
+  LOAD_COL_SLICE,   // load/store cols of global 2D array
+  STORE_COL_SLICE,
+  LOAD_SCALAR,      // distribute scalar across elements of shared vector
+  STORE_SCALAR,     // write first element of shared vector to a single global location
+  ADD,              // arithmetic between shared vectors
   SUB,
   MUL,
-  DIV,        // arithmetic between shared vectors
-  BAD
+  DIV
 };
 
-#ifdef PACKED
+//#define PACKED 64
+
+#if PACKED == 32
   struct Op {
     uint32_t code :8;
     uint32_t x :8;
     uint32_t y :8;
     uint32_t z :8;
   };
+#elif PACKED == 64
+  struct Op {
+    uint64_t code :16;
+	uint64_t x :16;
+	uint64_t y :16;
+	uint64_t z :16;
+};
 #else
   struct Op {
     uint32_t code;

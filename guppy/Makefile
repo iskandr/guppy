@@ -24,7 +24,7 @@ all: $(BIN) vm.ptx
 %.ptx : %.cu
 	$(NVCC) $(NVCCFLAGS) $(INCD) -ptx -o $@ $<
 
-%.o : %.cu
+%.o : %.cu $(HEADERS)
 	$(NVCC) $(NVCCFLAGS) $(INCD) -c -o $@ $<
 
 %.o: %.cpp

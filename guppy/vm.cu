@@ -15,7 +15,8 @@ static const int kThreadsPerBlock = kThreadsX * kThreadsY;
 
 static const int kRegisterWidth = kThreadsPerBlock * kOpsPerThread;
 static const int kNumRegisters = 4;
-static const int kProgramSize = 32;
+
+// static const int kProgramSize = 32;
 
 __global__ void run(Op* program,
                     long n_ops,
@@ -23,6 +24,7 @@ __global__ void run(Op* program,
                     long n_args,
                     float* constants,
                     long n_consts) {
+
   __shared__ float registers[kNumRegisters][kRegisterWidth];
 
   const int block_offset = blockIdx.y * gridDim.x + blockIdx.x;
