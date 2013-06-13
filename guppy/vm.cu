@@ -1,24 +1,32 @@
 #include <stdio.h>
-#include <cuda.h>
 #include <time.h>
 #include <vector>
+#include <stdint.h>
+#include <math.h>
+
 //#include <stdexcept>
 
 /*
-#define BYTECODE_OP static inline __device__
+ #define BYTECODE_OP static inline __device__
 
-BYTECODE_OP void load_slice() {
+ BYTECODE_OP void load_slice() {
 
-}
+ }
 
-BYTECODE_OP void add(void* a, void *b) {
+ BYTECODE_OP void add(void* a, void *b) {
 
-}
-*/
+ }
+ */
 
+#ifndef __NVCC__
+#define __global__
+#define __kernel__
+#define __device__
+#define __shared__
+#endif
 
 static inline int divup(int a, int b) {
-  return (int)ceil(float(a) / float(b));
+  return (int) ceil(float(a) / float(b));
 }
 
 static inline void check_cuda(const char* file, int line) {
@@ -26,7 +34,7 @@ static inline void check_cuda(const char* file, int line) {
   if (code != 0) {
     char buf[1024];
     sprintf(buf, "Cuda error at %s:%d :: %s\n", file, line, cudaGetErrorString(code));
-    fprintf(stderr, buf);
+    fprintf(stderr, "%s", buf);
     abort();
     // throw std::runtime_error(buf);
   }
@@ -35,9 +43,9 @@ static inline void check_cuda(const char* file, int line) {
 #define CHECK_CUDA() check_cuda(__FILE__, __LINE__)
 
 double Now() {
-    timespec tp;
-    clock_gettime(CLOCK_MONOTONIC, &tp);
-    return tp.tv_sec + 1e-9 * tp.tv_nsec;
+  timespec tp;
+  clock_gettime(CLOCK_MONOTONIC, &tp);
+  return tp.tv_sec + 1e-9 * tp.tv_nsec;
 }
 
 #define TIMEOP(op)\
@@ -48,68 +56,76 @@ double Now() {
   fprintf(stderr, "%s finished in %.f seconds.\n", #op, end - start);\
 }
 
-
 enum OP_CODE {
-  LOAD_SLICE, STORE_SLICE,    // load slice of global arrays into shared vector
-  LOAD_SCALAR, STORE_SCALAR, // distribute scalar across elements of shared vector
-  ADD, SUB, MUL, DIV,        // arithmetic between shared vectors
+  LOAD_SLICE,
+  STORE_SLICE,    // load slice of global arrays into shared vector
+  LOAD_SCALAR,
+  STORE_SCALAR, // distribute scalar across elements of shared vector
+  ADD,
+  SUB,
+  MUL,
+  DIV,        // arithmetic between shared vectors
   BAD
 };
 
 struct Op {
-  Op() : code(BAD), x(0), y(0), z(0) {}
-  Op(OP_CODE code, int x, int y, int z) : code(code), x(x), y(y), z(z)  {}
-
-  OP_CODE code; 
-  int x, y, z;
+  uint32_t code :8;
+  uint32_t x :8;
+  uint32_t y :8;
+  uint32_t z :8;
 };
+
+Op make_op(OP_CODE code, int x, int y, int z) {
+  Op op = { code, x, y, z };
+  return op;
+}
 
 struct Program {
-	std::vector<Op> _ops;
-	Op* _gpu_ptr;
+  std::vector<Op> _ops;
+  Op* _gpu_ptr;
 
+  Program& Add(int x, int y, int z) {
+    _ops.push_back(make_op(ADD, x, y, z));
+    return *this;
+  }
+  Program& LoadSlice(int src, int dst) {
+    _ops.push_back(make_op(LOAD_SLICE, src, dst, 0));
+    return *this;
+  }
+  Program& StoreSlice(int src, int dst) {
+    _ops.push_back(make_op(STORE_SLICE, src, dst, 0));
+    return *this;
+  }
 
-	Program& Add(int x, int y, int z) {
-		_ops.push_back(Op(ADD, x, y, z));
-		return *this;
-	}
-	Program& LoadSlice(int src, int dst) {
-		_ops.push_back(Op(LOAD_SLICE, src, dst, 0));
-		return *this;
-	}
-	Program& StoreSlice(int src, int dst) {
-		_ops.push_back(Op(STORE_SLICE, src, dst, 0));
-		return *this;
-	}
+  int size() {
+    return _ops.size();
+  }
 
-	int size() {
-      return _ops.size();
-	}
+  int nbytes() {
+    return sizeof(Op) * this->size();
+  }
 
-	int nbytes () {
-	  return sizeof(Op) * this->size();
-	}
+  Op* host_ptr() {
+    return &_ops[0];
+  }
+  Op* to_gpu() {
+    if (_gpu_ptr) {
+      return _gpu_ptr;
+    }
+    cudaMalloc(&_gpu_ptr, this->nbytes());
+    cudaMemcpy(_gpu_ptr, this->host_ptr(), this->nbytes(), cudaMemcpyHostToDevice);
+    return _gpu_ptr;
+  }
 
-	Op* host_ptr() {
-	  return &_ops[0];
-	}
-	Op* to_gpu() {
-	  if (_gpu_ptr) {
-		  return _gpu_ptr;
-	  }
-	  cudaMalloc(&_gpu_ptr, this->nbytes());
-	  cudaMemcpy(_gpu_ptr, this->host_ptr(), this->nbytes(), cudaMemcpyHostToDevice);
-	  return _gpu_ptr;
-	}
-
-	Program() : _gpu_ptr(NULL) {}
-	~Program () {
-	  if (_gpu_ptr) {
-	    cudaFree(_gpu_ptr);
-	  }
-	}
+  Program() :
+      _gpu_ptr(NULL) {
+  }
+  ~Program() {
+    if (_gpu_ptr) {
+      cudaFree(_gpu_ptr);
+    }
+  }
 };
-
 
 struct Vec {
   int _n;
@@ -121,10 +137,9 @@ struct Vec {
 
   void init(int n) {
     _n = n;
-    _nbytes = sizeof(float) * n
-    		;
-     cudaMallocHost(&_host_data, this->_nbytes);
-     cudaMalloc(&_gpu_data, this->_nbytes);
+    _nbytes = sizeof(float) * n;
+    cudaMallocHost(&_host_data, this->_nbytes);
+    cudaMalloc(&_gpu_data, this->_nbytes);
     _host_dirty = false;
     _gpu_dirty = true;
   }
@@ -133,7 +148,7 @@ struct Vec {
     this->init(n);
   }
 
-  Vec (int n, float fill_value) {
+  Vec(int n, float fill_value) {
     this->init(n);
     for (int i = 0; i < n; ++i) {
       _host_data[i] = fill_value;
@@ -141,103 +156,104 @@ struct Vec {
   }
 
   float* get_gpu_data() {
-     if (_gpu_dirty) { this->copy_to_gpu(); }
-     _host_dirty = true;
-     _gpu_dirty = false;
-     return _gpu_data;
+    if (_gpu_dirty) {
+      this->copy_to_gpu();
+    }
+    _host_dirty = true;
+    _gpu_dirty = false;
+    return _gpu_data;
   }
 
   float* get_host_data() {
-	  if (_host_dirty) { this->copy_to_host();}
-	  _gpu_dirty = true;
-	  _host_dirty = false;
-	  return _host_data;
+    if (_host_dirty) {
+      this->copy_to_host();
+    }
+    _gpu_dirty = true;
+    _host_dirty = false;
+    return _host_data;
   }
 
   void copy_to_host() {
-	  cudaMemcpy(this->_host_data, this->_gpu_data, this->_nbytes, cudaMemcpyDeviceToHost);
+    cudaMemcpy(this->_host_data, this->_gpu_data, this->_nbytes, cudaMemcpyDeviceToHost);
   }
 
-
   void copy_to_gpu() {
-	  cudaMemcpy(this->_gpu_data, this->_host_data, this->_nbytes, cudaMemcpyHostToDevice);
+    cudaMemcpy(this->_gpu_data, this->_host_data, this->_nbytes, cudaMemcpyHostToDevice);
   }
 
   ~Vec() {
-	  cudaFree(_gpu_data);
-	  cudaFreeHost(_host_data);
+    cudaFree(_gpu_data);
+    cudaFreeHost(_host_data);
   }
 
 };
 
-// NOT YET USING 2D blocks
-#define THREADS_X 64
-#define THREADS_Y 1
+static const int kThreadsX = 8;
+static const int kThreadsY = 8;
+static const int kOpsPerThread = 8;
 
-static const int OPS_PER_THREAD = 7;
+static const int kThreadsPerBlock = kThreadsX * kThreadsY;
 
-#define THREADS_PER_BLOCK (THREADS_X * THREADS_Y)
-#define REGISTER_WIDTH THREADS_PER_BLOCK * OPS_PER_THREAD
-#define NUM_REGISTERS 4
+static const int kRegisterWidth = kThreadsPerBlock * kOpsPerThread;
+static const int kNumRegisters = 3;
+static const int kProgramSize = 32;
 
+__global__ void run(Op* program,
+                    long n_ops,
+                    float** values,
+                    long n_args,
+                    float* constants,
+                    long n_consts) {
+  __shared__ float registers[kNumRegisters][kRegisterWidth];
 
-
-__global__ void run(
-		Op* program, long n_ops,
-		float** values,
-		long n_args,
-		float* constants, long n_consts) {
-
-  __shared__ float registers[NUM_REGISTERS][REGISTER_WIDTH];
-
-  int block_offset = blockIdx.x * blockDim.x;
-  int local_idx = threadIdx.x;
-  int global_idx = block_offset + local_idx;
+  const int block_offset = blockIdx.y * gridDim.x + blockIdx.x;
+  const int local_idx = threadIdx.y * blockDim.x + threadIdx.x;
+  const int block_idx = block_offset * kRegisterWidth;
 
   for (int pc = 0; pc < n_ops; ++pc) {
     Op op = program[pc];
     switch (op.code) {
     case LOAD_SLICE: {
-      for (int i = 0; i < OPS_PER_THREAD * THREADS_PER_BLOCK; i += THREADS_PER_BLOCK) {
-        registers[op.y][local_idx + i] = values[op.x][global_idx + i];
+      float* reg = &registers[op.y][local_idx * kOpsPerThread];
+      const float* src = values[op.x] + block_idx + (local_idx * kOpsPerThread);
+      for (int i = 0; i < kOpsPerThread; ++i) {
+        reg[i] = src[i];
       }
+      break;
     }
-    break;
 
     case STORE_SLICE: {
-      for (int i = 0; i < OPS_PER_THREAD * THREADS_PER_BLOCK; i += THREADS_PER_BLOCK) {
-        values[op.y][global_idx + i] = registers[op.x][local_idx + i];
+      float* reg = &registers[op.y][local_idx * kOpsPerThread];
+      float* dst = values[op.x] + block_idx + (local_idx * kOpsPerThread);
+      for (int i = 0; i < kOpsPerThread; ++i) {
+        dst[i] = reg[i];
       }
+      break;
     }
-    break;
 
     case ADD: {
-      for (int i = 0; i < OPS_PER_THREAD * THREADS_PER_BLOCK; i += THREADS_PER_BLOCK) {
-        const float x = registers[op.x][local_idx + i]; //+ startIdx + threadIdx.x;
-        const float y = registers[op.y][local_idx + i]; //+ startIdx + threadIdx.x;
-        registers[op.z][local_idx + i] = x + y;
+      const float* a = &registers[op.x][local_idx * kOpsPerThread];
+      const float* b = &registers[op.y][local_idx * kOpsPerThread];
+      float *c = &registers[op.z][local_idx * kOpsPerThread];
+      for (int i = 0; i < kOpsPerThread; ++i) {
+        c[i] = a[i] + b[i];
       }
+      break;
     }
-    break;
-    }  
+    }
   }
 }
 
+int main(int argc, const char** argv) {
+  int N = 2 << 24;
 
-
-int main(int argc, const char** argv) { 
-  int N = 400 * THREADS_PER_BLOCK;
-  if (argc > 1) {
-    N = strtol(argv[1], NULL, 10);
-  }
-    
   Vec a(N, 1.0);
   Vec b(N, 2.0);
   Vec c(N);
-  
+
   const int n_values = 3;
   float* h_values[n_values];
-  h_values[0]= a.get_gpu_data();
+  h_values[0] = a.get_gpu_data();
   h_values[1] = b.get_gpu_data();
   h_values[2] = c.get_gpu_data();
 
@@ -245,32 +261,49 @@ int main(int argc, const char** argv) {
   cudaMalloc(&d_values, sizeof(float*) * n_values);
   cudaMemcpy(d_values, h_values, sizeof(float*) * n_values, cudaMemcpyHostToDevice);
 
-
   Program h_program;
 
-  h_program.
-    LoadSlice(0,0).
-    LoadSlice(1,1).
-    Add(0,1,2).
-    StoreSlice(2,2);
+  h_program.LoadSlice(0, 0).LoadSlice(1, 1).Add(0, 1, 2).StoreSlice(2, 2);
 
-  double st = Now();
-  int blocks = divup(N, THREADS_PER_BLOCK * OPS_PER_THREAD);
-  fprintf(stderr, "Running on %d blocks.\n", blocks);
-  run<<<blocks, THREADS_PER_BLOCK>>>(
-		  h_program.to_gpu(), h_program.size(),
-		  d_values, n_values,
-		  0, 0);
-  cudaDeviceSynchronize();
-  CHECK_CUDA();
-  double ed = Now();
-  fprintf(stderr, "%.5f seconds\n", ed -st);
+  for (int i = 1; i <= N; i *= 2) {
+    int total_blocks = divup(i, kThreadsPerBlock * kOpsPerThread);
+    dim3 blocks;
+    blocks.x = int(ceil(sqrt(total_blocks)));
+    blocks.y = int(ceil(sqrt(total_blocks)));
+    blocks.z = 1;
+
+    dim3 threads;
+    threads.x = kThreadsX;
+    threads.y = kThreadsY;
+    threads.z = 1;
+
+    fprintf(stderr, "%d %d %d; %d %d %d\n", blocks.x, blocks.y, blocks.z, threads.x, threads.y,
+            threads.z);
+    double st = Now();
+    run<<<blocks, threads>>>(h_program.to_gpu(), h_program.size(), d_values, n_values, 0, 0);
+    cudaDeviceSynchronize();
+    CHECK_CUDA();
+    double ed = Now();
+    fprintf(stderr, "%d elements in %.5f seconds; %.5f GFLOPS\n", i, ed - st, i * 1e-9 / (ed - st));
+  }
 
   float* ad = a.get_host_data();
   printf("%f %f %f\n", ad[0], ad[10], ad[N - 200]);
   float* bd = b.get_host_data();
   printf("%f %f %f\n", bd[0], bd[10], bd[N - 200]);
   float* cd = c.get_host_data();
-  printf("%f %f %f\n", cd[0], cd[10], cd[N - 200]);
-  return 0; 
+  for (int i = 0; i < min(1024, N); ++i) {
+    printf("%.0f ", cd[i]);
+    if (i % 64 == 63) {
+      printf("\n");
+    }
+  }
+
+  for (int i = 0; i < N; ++i) {
+    if (cd[i] == 0) {
+      printf("ZERO at %d\n", i);
+      break;
+    }
+  }
+  return 0;
 }

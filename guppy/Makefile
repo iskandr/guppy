@@ -2,11 +2,15 @@ BIN               := vm
 CXXFLAGS          := -O3 -g
 
 NVCC ?= nvcc
+PTXAS ?= ptxas
+
 INCD =  -I"./"
 LIBS =  -lrt -lstdc++ -lpthread -lcuda -lcudart -lcublas -lcufft
-CUDA_SDK?=3
-NVCCFLAGS := --ptxas-options=-v -O3 -G -g -arch compute_13 #--compiler-bindir=./nvcc-bindir
+CUDA_SDK?=5
 
+ARCH := # -arch=compute_20
+NVCCFLAGS := $(ARCH) -O3 -g #--compiler-bindir=./nvcc-bindir
+PTXASFLAGS := $(ARCH) -v
 
 # files
 CPP_SOURCES       :=  
@@ -15,8 +19,13 @@ HEADERS           := $(wildcard *.h)
 CPP_OBJS          := $(patsubst %.cpp, %.o, $(CPP_SOURCES))
 CU_OBJS           := $(patsubst %.cu, %.o, $(CU_SOURCES))
 
+all: $(BIN) vm.ptx 
+
+%.ptx : %.cu
+	$(NVCC) $(NVCCFLAGS) $(INCD) --source-in-ptx -ptx -o $@ $<
+
 %.o : %.cu
-	$(NVCC) $(NVCCFLAGS) -c $(INCD) -o $@ $<
+	$(NVCC) $(NVCCFLAGS) $(INCD) -c -o $@ $<
 
 %.o: %.cpp
 	$(CXX) -c $(CXXFLAGS) $(INCD) -o $@ $<
@@ -25,4 +34,4 @@ $(BIN): $(CPP_OBJS) $(CU_OBJS)
 	$(NVCC) -link -o $(BIN) $(CU_OBJS) $(CPP_OBJS) $(LIBS) 
 
 clean:
-	rm -f $(BIN) *.o *.cu.o
+	rm -f $(BIN) *.o *.ptx
