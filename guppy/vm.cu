@@ -2,6 +2,7 @@
 #include <cuda.h>
 #include <time.h>
 #include <vector>
+//#include <stdexcept>
 
 /*
 #define BYTECODE_OP static inline __device__
@@ -14,6 +15,25 @@ BYTECODE_OP void add(void* a, void *b) {
 
 }
 */
+
+
+static inline int divup(int a, int b) {
+  return (int)ceil(float(a) / float(b));
+}
+
+static inline void check_cuda(const char* file, int line) {
+  cudaError_t code = cudaPeekAtLastError();
+  if (code != 0) {
+    char buf[1024];
+    sprintf(buf, "Cuda error at %s:%d :: %s\n", file, line, cudaGetErrorString(code));
+    fprintf(stderr, buf);
+    abort();
+    // throw std::runtime_error(buf);
+  }
+}
+
+#define CHECK_CUDA() check_cuda(__FILE__, __LINE__)
+
 double Now() {
     timespec tp;
     clock_gettime(CLOCK_MONOTONIC, &tp);
@@ -151,10 +171,10 @@ struct Vec {
 };
 
 // NOT YET USING 2D blocks
-#define THREADS_X 512
+#define THREADS_X 64
 #define THREADS_Y 1
 
-static const int OPS_PER_THREAD = 16;
+static const int OPS_PER_THREAD = 7;
 
 #define THREADS_PER_BLOCK (THREADS_X * THREADS_Y)
 #define REGISTER_WIDTH THREADS_PER_BLOCK * OPS_PER_THREAD
@@ -178,21 +198,21 @@ __global__ void run(
     Op op = program[pc];
     switch (op.code) {
     case LOAD_SLICE: {
-      for (int i = 0; i < OPS_PER_THREAD; ++i) {
+      for (int i = 0; i < OPS_PER_THREAD * THREADS_PER_BLOCK; i += THREADS_PER_BLOCK) {
         registers[op.y][local_idx + i] = values[op.x][global_idx + i];
       }
     }
     break;
 
     case STORE_SLICE: {
-      for (int i = 0; i < OPS_PER_THREAD; ++i) {
+      for (int i = 0; i < OPS_PER_THREAD * THREADS_PER_BLOCK; i += THREADS_PER_BLOCK) {
         values[op.y][global_idx + i] = registers[op.x][local_idx + i];
       }
     }
     break;
 
     case ADD: {
-      for (int i = 0; i < OPS_PER_THREAD; ++i) {
+      for (int i = 0; i < OPS_PER_THREAD * THREADS_PER_BLOCK; i += THREADS_PER_BLOCK) {
         const float x = registers[op.x][local_idx + i]; //+ startIdx + threadIdx.x;
         const float y = registers[op.y][local_idx + i]; //+ startIdx + threadIdx.x;
         registers[op.z][local_idx + i] = x + y;
@@ -235,19 +255,22 @@ int main(int argc, const char** argv) {
     StoreSlice(2,2);
 
   double st = Now();
-  run<<<N / THREADS_PER_BLOCK, THREADS_PER_BLOCK>>>(
+  int blocks = divup(N, THREADS_PER_BLOCK * OPS_PER_THREAD);
+  fprintf(stderr, "Running on %d blocks.\n", blocks);
+  run<<<blocks, THREADS_PER_BLOCK>>>(
 		  h_program.to_gpu(), h_program.size(),
 		  d_values, n_values,
 		  0, 0);
   cudaDeviceSynchronize();
+  CHECK_CUDA();
   double ed = Now();
   fprintf(stderr, "%.5f seconds\n", ed -st);
 
   float* ad = a.get_host_data();
-  printf("%f %f %f\n", ad[0], ad[10], ad[200]);
+  printf("%f %f %f\n", ad[0], ad[10], ad[N - 200]);
   float* bd = b.get_host_data();
-  printf("%f %f %f\n", bd[0], bd[10], bd[200]);
+  printf("%f %f %f\n", bd[0], bd[10], bd[N - 200]);
   float* cd = c.get_host_data();
-  printf("%f %f %f\n", cd[0], cd[10], cd[200]);
+  printf("%f %f %f\n", cd[0], cd[10], cd[N - 200]);
   return 0; 
 }

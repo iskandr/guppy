@@ -5,7 +5,7 @@ NVCC ?= nvcc
 INCD =  -I"./"
 LIBS =  -lrt -lstdc++ -lpthread -lcuda -lcudart -lcublas -lcufft
 CUDA_SDK?=3
-NVCCFLAGS := --ptxas-options=-v -O3 -G -g -arch compute_13
+NVCCFLAGS := --ptxas-options=-v -O3 -G -g -arch compute_13 #--compiler-bindir=./nvcc-bindir
 
 
 # files
@@ -22,7 +22,7 @@ CU_OBJS           := $(patsubst %.cu, %.o, $(CU_SOURCES))
 	$(CXX) -c $(CXXFLAGS) $(INCD) -o $@ $<
 
 $(BIN): $(CPP_OBJS) $(CU_OBJS)
-	$(NVCC) -link -o $(BIN) $(CU_OBJS) $(CPP_OBJS) $(LIBS)
+	$(NVCC) -link -o $(BIN) $(CU_OBJS) $(CPP_OBJS) $(LIBS) 
 
 clean:
 	rm -f $(BIN) *.o *.cu.o
