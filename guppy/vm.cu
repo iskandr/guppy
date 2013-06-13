@@ -151,7 +151,7 @@ struct Vec {
 };
 
 // NOT YET USING 2D blocks
-#define THREADS_X 32
+#define THREADS_X 512
 #define THREADS_Y 1
 
 static const int OPS_PER_THREAD = 16;
@@ -164,7 +164,8 @@ static const int OPS_PER_THREAD = 16;
 
 __global__ void run(
 		Op* program, long n_ops,
-		float** values, long n_args,
+		float** values,
+		long n_args,
 		float* constants, long n_consts) {
 
   __shared__ float registers[NUM_REGISTERS][REGISTER_WIDTH];
@@ -178,8 +179,7 @@ __global__ void run(
     switch (op.code) {
     case LOAD_SLICE: {
       for (int i = 0; i < OPS_PER_THREAD; ++i) {
-        float* dst = &registers[op.y][local_idx + i];
-        *dst = values[op.x][global_idx + i];
+        registers[op.y][local_idx + i] = values[op.x][global_idx + i];
       }
     }
     break;

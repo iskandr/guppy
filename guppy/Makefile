@@ -3,9 +3,9 @@ CXXFLAGS          := -O3 -g
 
 NVCC ?= nvcc
 INCD =  -I"./"
-LIBS =  -lrt -lstdc++ -lpthread
+LIBS =  -lrt -lstdc++ -lpthread -lcuda -lcudart -lcublas -lcufft
 CUDA_SDK?=3
-NVCCFLAGS := --ptxas-options=-v -O3 -G -g -arch compute_20
+NVCCFLAGS := --ptxas-options=-v -O3 -G -g -arch compute_13
 
 
 # files
