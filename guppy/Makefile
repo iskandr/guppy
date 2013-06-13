@@ -9,7 +9,7 @@ LIBS =  -lrt -lstdc++ -lpthread -lcuda -lcudart -lcublas -lcufft
 CUDA_SDK?=5
 
 ARCH := # -arch=compute_20
-NVCCFLAGS := $(ARCH) -O3 -g #--compiler-bindir=./nvcc-bindir
+NVCCFLAGS := $(ARCH) --ptxas-options='-v' -O3 -g #--compiler-bindir=./nvcc-bindir
 PTXASFLAGS := $(ARCH) -v
 
 # files
@@ -22,7 +22,7 @@ CU_OBJS           := $(patsubst %.cu, %.o, $(CU_SOURCES))
 all: $(BIN) vm.ptx 
 
 %.ptx : %.cu
-	$(NVCC) $(NVCCFLAGS) $(INCD) --source-in-ptx -ptx -o $@ $<
+	$(NVCC) $(NVCCFLAGS) $(INCD) -ptx -o $@ $<
 
 %.o : %.cu
 	$(NVCC) $(NVCCFLAGS) $(INCD) -c -o $@ $<
