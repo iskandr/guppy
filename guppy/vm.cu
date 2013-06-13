@@ -151,12 +151,13 @@ struct Vec {
 };
 
 // NOT YET USING 2D blocks
-#define THREADS_X 512
+#define THREADS_X 32
 #define THREADS_Y 1
 
+static const int OPS_PER_THREAD = 16;
 
 #define THREADS_PER_BLOCK (THREADS_X * THREADS_Y)
-#define REGISTER_WIDTH THREADS_PER_BLOCK
+#define REGISTER_WIDTH THREADS_PER_BLOCK * OPS_PER_THREAD
 #define NUM_REGISTERS 4
 
 
@@ -176,20 +177,26 @@ __global__ void run(
     Op op = program[pc];
     switch (op.code) {
     case LOAD_SLICE: {
-      float* dst = &registers[op.y][local_idx];
-      *dst = values[op.x][global_idx];
+      for (int i = 0; i < OPS_PER_THREAD; ++i) {
+        float* dst = &registers[op.y][local_idx + i];
+        *dst = values[op.x][global_idx + i];
+      }
     }
     break;
 
     case STORE_SLICE: {
-      values[op.y][global_idx] = registers[op.x][local_idx];
+      for (int i = 0; i < OPS_PER_THREAD; ++i) {
+        values[op.y][global_idx + i] = registers[op.x][local_idx + i];
+      }
     }
     break;
 
     case ADD: {
-      const float x = registers[op.x][local_idx]; //+ startIdx + threadIdx.x;
-      const float y = registers[op.y][local_idx]; //+ startIdx + threadIdx.x;
-      registers[op.z][local_idx] = x + y;
+      for (int i = 0; i < OPS_PER_THREAD; ++i) {
+        const float x = registers[op.x][local_idx + i]; //+ startIdx + threadIdx.x;
+        const float y = registers[op.y][local_idx + i]; //+ startIdx + threadIdx.x;
+        registers[op.z][local_idx + i] = x + y;
+      }
     }
     break;
     }  
