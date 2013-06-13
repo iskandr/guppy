@@ -5,7 +5,7 @@ NVCC ?= nvcc
 INCD =  -I"./"
 LIBS =  -lcuda  -lcudart -lcublas -lcufft -lstdc++ -lpthread
 CUDA_SDK?=3
-NVCCFLAGS := --ptxas-options=-v -O3 -G -g 
+NVCCFLAGS := --ptxas-options=-v -O3 -G -g -arch sm_13 
 
 
 # files

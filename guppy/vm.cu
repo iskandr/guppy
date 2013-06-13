@@ -149,53 +149,51 @@ struct Vec {
 
 };
 
-#define REGISTER_WIDTH 128
-#define NUM_REGISTERS 16
+// NOT YET USING 2D blocks
+#define THREADS_X 64
+#define THREADS_Y 8
+
+
+#define THREADS_PER_BLOCK (THREADS_X * THREADS_Y)
+#define REGISTER_WIDTH THREADS_PER_BLOCK
+#define NUM_REGISTERS 4
+
+
 
 __global__ void run(
-		Op* program, int n_ops,
-		float** values, int n_args,
-		float* constants, int n_consts) {
-  int startIdx = blockIdx.x * blockDim.x; 
+		Op* program, long n_ops,
+		float** values, long n_args,
+		float* constants, long n_consts) {
   // int stopIdx = startIdx + blockDim.x;
   __shared__ float registers[NUM_REGISTERS][REGISTER_WIDTH];
+  int block_offset = blockIdx.x * blockDim.x;
+  int local_idx = threadIdx.x;
+  int global_idx = block_offset + local_idx;
 
   for (int pc = 0; pc < n_ops; ++pc) {
     Op op = program[pc];
     switch (op.code) {
     case LOAD_SLICE: {
-      registers[op.y][threadIdx.x] = values[op.x][startIdx + threadIdx.x];
+      registers[op.y][local_idx] = values[op.x][global_idx];
     }
     break;
 
     case STORE_SLICE: {
-      values[op.y][startIdx + threadIdx.x] = registers[op.x][threadIdx.x];
-    }
-    break;
-
-    case LOAD_SCALAR: {
-    	registers[op.y][threadIdx.x] = constants[op.x];
-    }
-    break;
-
-    case STORE_SCALAR: {
-      float value = constants[op.x];
-      values[op.y][startIdx + threadIdx.x] = value;
-
+      values[op.y][global_idx] = registers[op.x][local_idx];
     }
     break;
 
 	case ADD: {
-	    float x = registers[op.x][threadIdx.x]; //+ startIdx + threadIdx.x;
-	    float y = registers[op.y][threadIdx.x]; //+ startIdx + threadIdx.x;
-	    registers[op.z][threadIdx.x] = x + y;
+	    float x = registers[op.x][local_idx]; //+ startIdx + threadIdx.x;
+	    float y = registers[op.y][local_idx]; //+ startIdx + threadIdx.x;
+	    registers[op.z][local_idx] = x + y;
       }
 	break;
     }  
   }
 }
 
-#define THREADS_PER_BLOCK 512
+
 
 int main(int argc, const char** argv) { 
   int N = 400 * THREADS_PER_BLOCK;
@@ -236,10 +234,10 @@ int main(int argc, const char** argv) {
   fprintf(stderr, "%.5f seconds\n", ed -st);
 
   float* ad = a.get_host_data();
-  printf("%f %f %f\n", ad[0], ad[10], ad[20]);
+  printf("%f %f %f\n", ad[0], ad[10], ad[200]);
   float* bd = b.get_host_data();
-  printf("%f %f %f\n", bd[0], bd[10], bd[20]);
+  printf("%f %f %f\n", bd[0], bd[10], bd[200]);
   float* cd = c.get_host_data();
-  printf("%f %f %f\n", cd[0], cd[10], cd[20]);
+  printf("%f %f %f\n", cd[0], cd[10], cd[200]);
   return 0; 
 }
