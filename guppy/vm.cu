@@ -170,13 +170,14 @@ __global__ void run(
 
   int block_offset = blockIdx.x * blockDim.x;
   int local_idx = threadIdx.x;
-int global_idx = block_offset + local_idx;
+  int global_idx = block_offset + local_idx;
 
   for (int pc = 0; pc < n_ops; ++pc) {
     Op op = program[pc];
     switch (op.code) {
     case LOAD_SLICE: {
-      registers[op.y][local_idx] = values[op.x][global_idx];
+      float* dst = &registers[op.y][local_idx];
+      *dst = values[op.x][global_idx];
     }
     break;
 
@@ -185,12 +186,12 @@ int global_idx = block_offset + local_idx;
     }
     break;
 
-	case ADD: {
-	    float x = registers[op.x][local_idx]; //+ startIdx + threadIdx.x;
-	    float y = registers[op.y][local_idx]; //+ startIdx + threadIdx.x;
-	    registers[op.z][local_idx] = x + y;
-      }
-	break;
+    case ADD: {
+      const float x = registers[op.x][local_idx]; //+ startIdx + threadIdx.x;
+      const float y = registers[op.y][local_idx]; //+ startIdx + threadIdx.x;
+      registers[op.z][local_idx] = x + y;
+    }
+    break;
     }  
   }
 }
