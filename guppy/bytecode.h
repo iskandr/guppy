@@ -2,111 +2,126 @@
 #define GUPPY_BYTECODE_H
 
 #include <stdint.h>
+#include <string>
 
 
+// global idx, by convention is stored in first integer register
+static const int BlockStart = 0;
+// by convention register width stored in second integer register
+static const int VecWidth = 1;
 
+enum IntRegisters { i0, i1, i2, i3};
+enum FloatRegisters { f0, f1, f2, f3 };
+enum VecRegisters { v0, v1, v2, v3 };
+enum Arrays { a0, a1, a2, a3 };
 
-enum OP_CODE {
+struct Instruction {
+/* every instruction must have a unique code and a size in number of bytes */
 
-  LOAD_SLICE,       // load/store global 1D array
-  STORE_SLICE,
-  
-  LOAD_ROW_SLICE,   // load/store rows of global 2D array
-  STORE_ROW_SLICE,
-  
-  LOAD_COL_SLICE,   // load/store cols of global 2D array
-  STORE_COL_SLICE,
-  
-  LOAD_SCALAR,      // load first element of global 1D array into scalar register
-  STORE_SCALAR,     // store scalar register to first element of global vector
+	const uint32_t code :16;
+  	const uint32_t size :16;
 
-  FILL,             // distribute scalar (first argument)
-                    // across elements of vector (second argument)
-
-  IDX,              // index(vector register, const idx, scalar register)
-
-  
-  ADD,              // arithmetic between shared vectors
-  SUB,
-  MUL,
-  DIV,
-  
-  MAP,              // apply sub-program  with each element of 
-                    // given vector register 
-                    // loaded into given scalar register
-                    // ARGS:
-                    //   - start position in code (runs until STOP)
-                    //   - vector register
-                    //   - scalar register 
-  
-  REDUCE            // reduce a vector to a single scalar
-                    // ARGS: 
-                    //   - start position in code (runs until STOP)
-                    //   - vector register
-                    //   - scalar register (for accumulator)
-                    //   - scalar register (for elements of vector)
+  	Instruction(uint16_t code, uint16_t size) : code(code), size(size) {}
 };
 
+/* Beware of curiously recurring template pattern!*/
+template <class SubType>
+struct InstructionT : Instruction {
+	InstructionT() : Instruction(SubType::op_code,  sizeof(SubType)) {}
+};
 
-#define PACKED 64
+struct LoadVector : public InstructionT<LoadVector> {
+	static const int op_code = 0;
 
-#if PACKED == 32
-  struct Op {
-    uint32_t code :8;
-    uint32_t x :8;
-    uint32_t y :8;
-    uint32_t z :8;
-  };
-#elif PACKED == 64
-  struct Op {
-    uint64_t code :16;
-    uint64_t x :16;
-    uint64_t y :16;
-    uint64_t z :16;
-  };
-#else
-  struct Op {
-    uint32_t code;
-    uint32_t x;
-    uint32_t y;
-    uint32_t z;
-  };
-#endif
+	/* load elements from a global array into a local vector */
+	const uint64_t source_array :8;
+	const uint64_t target_vector :8;
+	const uint64_t start_idx :32;
+	const uint64_t nelts : 16;
 
-Op make_op(OP_CODE code, int x, int y, int z) {
-  Op op = { code, x, y, z };
-  return op;
-}
+	LoadVector(int source_array, int target_vector, int start_idx, int nelts)
+	  : source_array(source_array),
+		target_vector(target_vector),
+		start_idx(start_idx),
+		nelts(nelts) {}
+
+};
+
+struct StoreVector : public InstructionT<StoreVector> {
+	static const int op_code = 1;
+
+    /* store elements of a vector into a global array
+	 * starting from target_array[start_idx] until
+	 * target_array[start_idx + nelts]
+	 */
+	const uint64_t target_array :8;
+	const uint64_t source_vector :8;
+	const uint64_t start_idx :32;
+	const uint64_t nelts : 16;
+
+	StoreVector(int target_array, int source_vector, int start_idx, int nelts)
+      : target_array(target_array),
+	    source_vector(source_vector),
+		start_idx(start_idx),
+	    nelts(nelts) {}
+};
+
+struct Map : public InstructionT<Map> {
+	static const int op_code = 2;
+
+	/* map over element of source vector (which are loaded into scalar register input_elt)
+	 * run given subprogram, write values of output_elt register into target_vector.
+	 * The subprogram is just the next n_ops instructions.
+	 */
+	const uint64_t source_vector : 16;
+	const uint64_t target_vector : 16;
+	const uint64_t input_elt :8;
+	const uint64_t output_elt :8;
+	const uint64_t n_ops :16;
+
+	Map(int source_vector, int target_vector, int input_elt, int output_elt, int n_ops)
+    	: source_vector(source_vector),
+    	  target_vector(target_vector),
+    	  input_elt(input_elt),
+    	  output_elt(output_elt),
+    	  n_ops(n_ops) {}
+};
+
+struct Add : public InstructionT<Add> {
+	static const int op_code = 3;
+
+	/* for now this will only work as a scalar operation,
+	 * expecting scalar float registers as arguments x,y,target
+	 */
+	const uint64_t arg1 :16;
+	const uint64_t arg2 :16;
+	const uint64_t result :16;
+
+	Add(int arg1, int arg2, int result) : arg1(arg1), arg2(arg2), result(result) {}
+};
 
 struct Program {
-  std::vector<Op> _ops;
-  Op* _gpu_ptr;
+  std::string _ops;
+  char* _gpu_ptr;
+  void add(const Instruction& instr) {
+	  const char* data = (const char*) &instr;
+	  int len = instr.size;
 
-  Program& Add(int x, int y, int z) {
-    _ops.push_back(make_op(ADD, x, y, z));
-    return *this;
+	  _ops += std::string(data, len);
   }
-  Program& LoadSlice(int src, int dst) {
-    _ops.push_back(make_op(LOAD_SLICE, src, dst, 0));
-    return *this;
-  }
-  Program& StoreSlice(int src, int dst) {
-    _ops.push_back(make_op(STORE_SLICE, src, dst, 0));
-    return *this;
-  }
-
   int size() {
     return _ops.size();
   }
 
   int nbytes() {
-    return sizeof(Op) * this->size();
+    return this->size();
   }
 
-  Op* host_ptr() {
+  char* host_ptr() {
     return &_ops[0];
   }
-  Op* to_gpu() {
+
+  char* to_gpu() {
     if (_gpu_ptr) {
       return _gpu_ptr;
     }
@@ -115,9 +130,7 @@ struct Program {
     return _gpu_ptr;
   }
 
-  Program() :
-      _gpu_ptr(NULL) {
-  }
+  Program() : _gpu_ptr(NULL) { }
   ~Program() {
     if (_gpu_ptr) {
       cudaFree(_gpu_ptr);

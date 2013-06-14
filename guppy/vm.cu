@@ -3,6 +3,9 @@
 #include <vector>
 #include <math.h>
 
+#include <cuda.h>
+#include <cuda_runtime.h>
+
 #include "bytecode.h"
 #include "vec.h"
 #include "util.h"
@@ -15,82 +18,97 @@ static const int kThreadsPerBlock = kThreadsX * kThreadsY;
 
 static const int kRegisterWidth = kThreadsPerBlock * kOpsPerThread;
 
-static const int kNumRegisters = 4;
+static const int kNumVecRegisters = 4;
 
-// static const int kProgramSize = 32;
+static const int kNumIntRegisters = 10;
+static const int kNumFloatRegisters = 10;
 
-__global__ void run(Op* program,
-                    long n_ops,
+__global__ void run(char* program,
+                    long program_nbytes,
                     float** values,
                     long n_args,
                     float* constants,
                     long n_consts) {
 
-  __shared__ float registers[kNumRegisters][kRegisterWidth];
-  
-  // scalar registers implicitly filled by map and reduce 
-  float acc;
-  float elt; 
+  __shared__ float vectors[kNumVecRegisters][kRegisterWidth];
 
+  __shared__ int   int_scalars[kNumIntRegisters];
+  __shared__ float float_scalars[kNumFloatRegisters];
+  
 
   const int block_offset = blockIdx.y * gridDim.x + blockIdx.x;
   const int local_idx = threadIdx.y * blockDim.x + threadIdx.x;
   const int block_idx = block_offset * kRegisterWidth;
   const int global_idx = block_idx + (local_idx * kOpsPerThread);
-  const int end_i = min(kOpsPerThread, (2 << 24) - global_idx);
-  
 
-  for (int pc = 0; pc < n_ops; ++pc) {
-    Op op = program[pc];
-    switch (op.code) {
-    case LOAD_SLICE: {
-      float* reg = &registers[op.y][local_idx * kOpsPerThread];
-      const float* src = &values[op.x][global_idx];
-      for (int i = 0; i < end_i; ++i) {
+  // by convention, the first int register contains the global index
+  int_scalars[0] = global_idx;
+  int_scalars[1] = kRegisterWidth;
+
+  int pc = 0;
+  Instruction* instr;
+  while (pc < program_nbytes)
+	instr = (Instruction*) &program[pc];
+    pc += instr->size;
+
+    switch (instr->code) {
+    case LoadVector::op_code: {
+      LoadVector* load_slice = (LoadVector*) instr;
+
+      float* reg = vectors[load_slice->target_vector];
+      const float* src = values[load_slice->source_array];
+      const int start = int_scalars[load_slice->start_idx] + local_idx;
+      int nelts = int_scalars[load_slice->nelts];
+      nelts = nelts ? nelts <= kRegisterWidth : kRegisterWidth;
+      const int stop = start + nelts;
+      for (int i = start; i < stop; i += kOpsPerThread) {
         reg[i] = src[i];
       }
       break;
     }
 
-    case STORE_SLICE: {
-      const float* reg = &registers[op.y][local_idx * kOpsPerThread];
-      float* dst = &values[op.x][global_idx];
-      for (int i = 0; i < end_i; ++i) {
+    case StoreVector::op_code: {
+      StoreVector* store_vector = (StoreVector*) instr;
+      const float* reg = vectors[store_vector->source_vector];
+      float* dst = values[store_vector->target_array];
+      const int start = int_scalars[store_vector->start_idx] + local_idx;
+      int nelts = int_scalars[store_vector->nelts];
+      nelts = nelts ? nelts <= kRegisterWidth : kRegisterWidth;
+      const int stop = start + nelts;
+      for (int i = start; i < stop; i += kOpsPerThread) {
         dst[i] = reg[i];
       }
       break;
     }
 
-    case ADD: {
-      const float* a = registers[op.x];// [local_idx * kOpsPerThread];
-      const float* b = registers[op.y];//[local_idx * kOpsPerThread];
-      float *c = registers[op.z]; //[local_idx * kOpsPerThread];
+    case Add::op_code: {
+      Add* add = (Add*) instr;
+      const float* a = vectors[add->arg1];
+      const float* b = vectors[add->arg2];
+      float *c = vectors[add->result];
       for (int i = local_idx; i < kRegisterWidth; i += kOpsPerThread) {
-      //for (int i = 0; i < kOpsPerThread; ++i) {
         c[i] = a[i] + b[i];
       }
       break;
     }
     
-    case MAP: {
+    case Map::op_code: {
+      Map* map = (Map*) instr;
+      /*
       const float* reg = registers[op.x]; 
       for (int i = local_idx; i < kRegisterWidth; i += kOpsPerThread) {
         elt = reg[i];
 
       }
+      */
       break;
     }
 
-    case REDUCE: {
-
-    break;
-    }
-    }
   }
 }
 
 int main(int argc, const char** argv) {
-  int N = 2 << 24;
+  int N = 2 << 8;
 
   Vec a(N, 1.0);
   Vec b(N, 2.0);
@@ -107,10 +125,18 @@ int main(int argc, const char** argv) {
   cudaMemcpy(d_values, h_values, sizeof(float*) * n_values, cudaMemcpyHostToDevice);
 
   Program h_program;
+  h_program.add(LoadVector(a0,v0,BlockStart,VecWidth));
+  h_program.add(LoadVector(a1,v1,BlockStart,VecWidth));
+  h_program.add(Add(v0,v1,v2));
+  h_program.add(StoreVector(a2, v2, BlockStart,VecWidth));
 
-  h_program.LoadSlice(0, 0).LoadSlice(1, 1).Add(0, 1, 2).StoreSlice(2, 2);
+  printf("%d %d\n", *((uint16_t*)&h_program._ops[0]), *((uint16_t*) &h_program._ops[2]));
+  printf("program length: %d\n", h_program.size());
+  printf("load size %d\n", sizeof(LoadVector));
+  printf("store size %d\n", sizeof(StoreVector));
+  printf("add size %d\n", sizeof(Add));
 
-//  for (int i = 1; i <= N; i *= 2) {
+  //  for (int i = 1; i <= N; i *= 2) {
   int i = N;
     int total_blocks = divup(i, kThreadsPerBlock * kOpsPerThread);
     dim3 blocks;
@@ -126,7 +152,10 @@ int main(int argc, const char** argv) {
     fprintf(stderr, "%d %d %d; %d %d %d\n", blocks.x, blocks.y, blocks.z, threads.x, threads.y,
             threads.z);
     double st = Now();
-    run<<<blocks, threads>>>(h_program.to_gpu(), h_program.size(), d_values, n_values, 0, 0);
+    run<<<blocks, threads>>>(h_program.to_gpu(),
+    		                 h_program.size(),
+    		                 d_values,
+    		                 n_values, 0, 0);
     cudaDeviceSynchronize();
     CHECK_CUDA();
     double ed = Now();
