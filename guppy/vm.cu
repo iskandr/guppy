@@ -7,13 +7,14 @@
 #include "vec.h"
 #include "util.h"
 
-static const int kThreadsX = 4; // 16;
+static const int kThreadsX = 8; // 16;
 static const int kThreadsY = 4; // 16;
 static const int kOpsPerThread = 8;
 
 static const int kThreadsPerBlock = kThreadsX * kThreadsY;
 
 static const int kRegisterWidth = kThreadsPerBlock * kOpsPerThread;
+
 static const int kNumRegisters = 4;
 
 // static const int kProgramSize = 32;
@@ -26,12 +27,18 @@ __global__ void run(Op* program,
                     long n_consts) {
 
   __shared__ float registers[kNumRegisters][kRegisterWidth];
+  
+  // scalar registers implicitly filled by map and reduce 
+  float acc;
+  float elt; 
+
 
   const int block_offset = blockIdx.y * gridDim.x + blockIdx.x;
   const int local_idx = threadIdx.y * blockDim.x + threadIdx.x;
   const int block_idx = block_offset * kRegisterWidth;
   const int global_idx = block_idx + (local_idx * kOpsPerThread);
   const int end_i = min(kOpsPerThread, (2 << 24) - global_idx);
+  
 
   for (int pc = 0; pc < n_ops; ++pc) {
     Op op = program[pc];
@@ -46,7 +53,7 @@ __global__ void run(Op* program,
     }
 
     case STORE_SLICE: {
-      float* reg = &registers[op.y][local_idx * kOpsPerThread];
+      const float* reg = &registers[op.y][local_idx * kOpsPerThread];
       float* dst = &values[op.x][global_idx];
       for (int i = 0; i < end_i; ++i) {
         dst[i] = reg[i];
@@ -55,13 +62,28 @@ __global__ void run(Op* program,
     }
 
     case ADD: {
-      const float* a = &registers[op.x][local_idx * kOpsPerThread];
-      const float* b = &registers[op.y][local_idx * kOpsPerThread];
-      float *c = &registers[op.z][local_idx * kOpsPerThread];
-      for (int i = 0; i < kOpsPerThread; ++i) {
+      const float* a = registers[op.x];// [local_idx * kOpsPerThread];
+      const float* b = registers[op.y];//[local_idx * kOpsPerThread];
+      float *c = registers[op.z]; //[local_idx * kOpsPerThread];
+      for (int i = local_idx; i < kRegisterWidth; i += kOpsPerThread) {
+      //for (int i = 0; i < kOpsPerThread; ++i) {
         c[i] = a[i] + b[i];
       }
       break;
+    }
+    
+    case MAP: {
+      const float* reg = registers[op.x]; 
+      for (int i = local_idx; i < kRegisterWidth; i += kOpsPerThread) {
+        elt = reg[i];
+
+      }
+      break;
+    }
+
+    case REDUCE: {
+
+    break;
     }
     }
   }

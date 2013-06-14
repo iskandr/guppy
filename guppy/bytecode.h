@@ -10,19 +10,45 @@ enum OP_CODE {
 
   LOAD_SLICE,       // load/store global 1D array
   STORE_SLICE,
+  
   LOAD_ROW_SLICE,   // load/store rows of global 2D array
   STORE_ROW_SLICE,
+  
   LOAD_COL_SLICE,   // load/store cols of global 2D array
   STORE_COL_SLICE,
-  LOAD_SCALAR,      // distribute scalar across elements of shared vector
-  STORE_SCALAR,     // write first element of shared vector to a single global location
+  
+  LOAD_SCALAR,      // load first element of global 1D array into scalar register
+  STORE_SCALAR,     // store scalar register to first element of global vector
+
+  FILL,             // distribute scalar (first argument)
+                    // across elements of vector (second argument)
+
+  IDX,              // index(vector register, const idx, scalar register)
+
+  
   ADD,              // arithmetic between shared vectors
   SUB,
   MUL,
-  DIV
+  DIV,
+  
+  MAP,              // apply sub-program  with each element of 
+                    // given vector register 
+                    // loaded into given scalar register
+                    // ARGS:
+                    //   - start position in code (runs until STOP)
+                    //   - vector register
+                    //   - scalar register 
+  
+  REDUCE            // reduce a vector to a single scalar
+                    // ARGS: 
+                    //   - start position in code (runs until STOP)
+                    //   - vector register
+                    //   - scalar register (for accumulator)
+                    //   - scalar register (for elements of vector)
 };
 
-//#define PACKED 64
+
+#define PACKED 64
 
 #if PACKED == 32
   struct Op {
@@ -34,10 +60,10 @@ enum OP_CODE {
 #elif PACKED == 64
   struct Op {
     uint64_t code :16;
-	uint64_t x :16;
-	uint64_t y :16;
-	uint64_t z :16;
-};
+    uint64_t x :16;
+    uint64_t y :16;
+    uint64_t z :16;
+  };
 #else
   struct Op {
     uint32_t code;

@@ -8,7 +8,7 @@ INCD =  -I"./"
 LIBS =  -lrt -lstdc++ -lpthread -lcuda -lcudart -lcublas -lcufft
 CUDA_SDK?=5
 
-ARCH := # -arch=compute_20
+ARCH := -arch=sm_13
 NVCCFLAGS := $(ARCH) --ptxas-options='-v' -O3 -g #--compiler-bindir=./nvcc-bindir
 PTXASFLAGS := $(ARCH) -v
 
