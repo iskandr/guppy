@@ -3,13 +3,13 @@
 #include <vector>
 #include <math.h>
 
-#include <cuda.h>
-#include <cuda_runtime.h>
 
 #include "bytecode.h"
 #include "vec.h"
 #include "util.h"
 
+#undef _GLIBCXX_ATOMIC_BUILTINS
+#undef _GLIBCXX_USE_INT128
 static const int kThreadsX = 8; // 16;
 static const int kThreadsY = 4; // 16;
 static const int kOpsPerThread = 8;
@@ -47,22 +47,26 @@ __global__ void run(char* program,
 
   int pc = 0;
   Instruction* instr;
-  while (pc < program_nbytes)
-	instr = (Instruction*) &program[pc];
+  while (pc < program_nbytes) {
+    
+    instr = (Instruction*) &program[pc];
     pc += instr->size;
 
     switch (instr->code) {
     case LoadVector::op_code: {
       LoadVector* load_slice = (LoadVector*) instr;
-
-      float* reg = vectors[load_slice->target_vector];
-      const float* src = values[load_slice->source_array];
+      
+      const int vec_idx = load_slice->target_vector; 
+      float* reg = vectors[vec_idx];
+      const int array_idx = load_slice->source_array; 
+      const float* src = values[array_idx];
       const int start = int_scalars[load_slice->start_idx] + local_idx;
       int nelts = int_scalars[load_slice->nelts];
       nelts = nelts ? nelts <= kRegisterWidth : kRegisterWidth;
       const int stop = start + nelts;
       for (int i = start; i < stop; i += kOpsPerThread) {
-        reg[i] = src[i];
+        const float elt = src[i]; 
+        reg[i] = elt;
       }
       break;
     }
@@ -76,7 +80,8 @@ __global__ void run(char* program,
       nelts = nelts ? nelts <= kRegisterWidth : kRegisterWidth;
       const int stop = start + nelts;
       for (int i = start; i < stop; i += kOpsPerThread) {
-        dst[i] = reg[i];
+        const float elt = reg[i]; 
+        dst[i] = elt; 
       }
       break;
     }
@@ -103,7 +108,7 @@ __global__ void run(char* program,
       */
       break;
     }
-
+    }
   }
 }
 
