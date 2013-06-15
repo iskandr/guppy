@@ -12,7 +12,9 @@
 #undef _GLIBCXX_USE_INT128
 static const int kThreadsX = 8; // 16;
 static const int kThreadsY = 4; // 16;
-static const int kOpsPerThread = 8;
+
+// seems to give slightly better performance than kOpsPerThread = 8
+static const int kOpsPerThread = 9;
 
 static const int kThreadsPerBlock = kThreadsX * kThreadsY;
 
@@ -25,6 +27,8 @@ static const int kNumFloatRegisters = 10;
 
 static const int kMaxProgramLength = 1000; 
 
+#define PREFETCH_GPU_BYTECODE 
+
 __global__ void run(char* program,
                     long program_nbytes,
                     float** values,
@@ -33,7 +37,9 @@ __global__ void run(char* program,
                     long n_consts) {
 
   
-  __shared__ float vectors[kNumVecRegisters][kRegisterWidth];
+  // making vector slightly longer seems to minorly improve 
+  // performance -- due to bank conflicts? 
+  __shared__ float vectors[kNumVecRegisters][kRegisterWidth+1];
 
   __shared__ int   int_scalars[kNumIntRegisters];
   __shared__ float float_scalars[kNumFloatRegisters];
@@ -45,14 +51,15 @@ __global__ void run(char* program,
   const int global_idx = block_start_idx + (local_idx * kOpsPerThread);
 
  
-  /* preload program so that we don't make 
-     repeated global memory requests 
-  */  
-  __shared__ char  cached_program[kMaxProgramLength];
-  for (int i = local_idx; i < program_nbytes; i+=kThreadsPerBlock) {
-    cached_program[i] = program[i];      
-  }  
-  
+  #ifdef PREFETCH_GPU_BYTECODE 
+    /* preload program so that we don't make 
+       repeated global memory requests 
+    */  
+    __shared__ char  cached_program[kMaxProgramLength];
+    for (int i = local_idx; i < program_nbytes; i+=kThreadsPerBlock) {
+      cached_program[i] = program[i];      
+    }  
+  #endif 
   // by convention, the first int register contains the global index
   int_scalars[BlockStart] = block_offset; 
   int_scalars[VecWidth] = kRegisterWidth;
@@ -62,7 +69,11 @@ __global__ void run(char* program,
   Instruction* instr;
   while (pc < program_nbytes) {
     
-    instr = (Instruction*) &cached_program[pc];
+    #ifdef PREFETCH_GPU_BYTECODE 
+      instr = (Instruction*) &cached_program[pc];
+    #else
+      instr = (Instruction*) &program[pc]; 
+    #endif 
     pc += instr->size;
 
     switch (instr->code) {
