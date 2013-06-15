@@ -84,6 +84,7 @@ __global__ void run(char* program,
       const int start = int_scalars[load_slice->start_idx];
       int nelts = int_scalars[load_slice->nelts];
       nelts = nelts <= kRegisterWidth ? nelts : kRegisterWidth; 
+      #pragma unroll 9
       for (int i = local_idx; i < nelts; i += kThreadsPerBlock) { 
         reg[i] = src[start+i];
       }
@@ -97,6 +98,7 @@ __global__ void run(char* program,
       const int start = int_scalars[store_vector->start_idx];
       int nelts = int_scalars[store_vector->nelts];
       nelts = nelts <= kRegisterWidth ? nelts : kRegisterWidth; 
+      #pragma unroll 9
       for (int i = local_idx; i < nelts; i += kThreadsPerBlock) { 
         dst[i+start] = reg[i]; 
       }
@@ -108,6 +110,7 @@ __global__ void run(char* program,
       const float* a = vectors[add->arg1];
       const float* b = vectors[add->arg2];
       float *c = vectors[add->result];
+      #pragma unroll 9 
       for (int i = local_idx*kOpsPerThread; 
            i < (local_idx+1)*kOpsPerThread; 
            ++i) { 
