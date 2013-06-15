@@ -6,11 +6,8 @@
 
 
 // global idx, by convention is stored in first integer register
-static const int BlockStart = 0;
-// by convention register width stored in second integer register
-static const int VecWidth = 1;
 
-enum IntRegisters { i0, i1, i2, i3};
+enum IntRegisters { BlockStart, VecWidth, BlockEltStart, i0, i1, i2, i3};
 enum FloatRegisters { f0, f1, f2, f3 };
 enum VecRegisters { v0, v1, v2, v3 };
 enum Arrays { a0, a1, a2, a3 };

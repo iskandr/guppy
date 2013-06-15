@@ -42,8 +42,9 @@ __global__ void run(char* program,
   const int global_idx = block_idx + (local_idx * kOpsPerThread);
 
   // by convention, the first int register contains the global index
-  int_scalars[0] = global_idx;
-  int_scalars[1] = kRegisterWidth;
+  int_scalars[BlockStart] = block_idx; 
+  int_scalars[VecWidth] = kRegisterWidth;
+  int_scalars[BlockEltStart] = block_idx * VecWidth; 
 
   int pc = 0;
   Instruction* instr;
@@ -113,7 +114,7 @@ __global__ void run(char* program,
 }
 
 int main(int argc, const char** argv) {
-  int N = 2 << 8;
+  int N = 2 << 24;
 
   Vec a(N, 1.0);
   Vec b(N, 2.0);
@@ -130,10 +131,10 @@ int main(int argc, const char** argv) {
   cudaMemcpy(d_values, h_values, sizeof(float*) * n_values, cudaMemcpyHostToDevice);
 
   Program h_program;
-  h_program.add(LoadVector(a0,v0,BlockStart,VecWidth));
-  h_program.add(LoadVector(a1,v1,BlockStart,VecWidth));
+  h_program.add(LoadVector(a0,v0,BlockEltStart,VecWidth));
+  h_program.add(LoadVector(a1,v1,BlockEltStart,VecWidth));
   h_program.add(Add(v0,v1,v2));
-  h_program.add(StoreVector(a2, v2, BlockStart,VecWidth));
+  h_program.add(StoreVector(a2, v2, BlockEltStart,VecWidth));
 
   printf("%d %d\n", *((uint16_t*)&h_program._ops[0]), *((uint16_t*) &h_program._ops[2]));
   printf("program length: %d\n", h_program.size());
@@ -142,29 +143,28 @@ int main(int argc, const char** argv) {
   printf("add size %d\n", sizeof(Add));
 
   //  for (int i = 1; i <= N; i *= 2) {
-  int i = N;
-    int total_blocks = divup(i, kThreadsPerBlock * kOpsPerThread);
-    dim3 blocks;
-    blocks.x = int(ceil(sqrt(total_blocks)));
-    blocks.y = int(ceil(sqrt(total_blocks)));
-    blocks.z = 1;
+  int total_blocks = divup(N, kRegisterWidth * kThreadsPerBlock * kOpsPerThread);
+  dim3 blocks;
+  blocks.x = int(ceil(sqrt(total_blocks)));
+  blocks.y = int(ceil(sqrt(total_blocks)));
+  blocks.z = 1;
 
-    dim3 threads;
-    threads.x = kThreadsX;
-    threads.y = kThreadsY;
-    threads.z = 1;
+  dim3 threads;
+  threads.x = kThreadsX;
+  threads.y = kThreadsY;
+  threads.z = 1;
 
-    fprintf(stderr, "%d %d %d; %d %d %d\n", blocks.x, blocks.y, blocks.z, threads.x, threads.y,
-            threads.z);
-    double st = Now();
-    run<<<blocks, threads>>>(h_program.to_gpu(),
-    		                 h_program.size(),
-    		                 d_values,
-    		                 n_values, 0, 0);
-    cudaDeviceSynchronize();
-    CHECK_CUDA();
-    double ed = Now();
-    fprintf(stderr, "%d elements in %.5f seconds; %.5f GFLOPS\n", i, ed - st, i * 1e-9 / (ed - st));
+  fprintf(stderr, "%d %d %d; %d %d %d\n", blocks.x, blocks.y, blocks.z, threads.x, threads.y,
+          threads.z);
+  double st = Now();
+  run<<<blocks, threads>>>(h_program.to_gpu(),
+  		           h_program.size(),
+    		           d_values,
+    		           n_values, 0, 0);
+  cudaDeviceSynchronize();
+  CHECK_CUDA();
+  double ed = Now();
+  fprintf(stderr, "%d elements in %.5f seconds; %.5f GFLOPS\n", N, ed - st, N * 1e-9 / (ed - st));
 //  }
 
   float* ad = a.get_host_data();
