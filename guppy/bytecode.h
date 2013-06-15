@@ -14,10 +14,8 @@ enum Arrays { a0, a1, a2, a3 };
 
 struct Instruction {
 /* every instruction must have a unique code and a size in number of bytes */
-
-	const uint32_t code :16;
-  	const uint32_t size :16;
-
+	const uint16_t code :8;
+  	const uint16_t size :8;
   	Instruction(uint16_t code, uint16_t size) : code(code), size(size) {}
 };
 
@@ -31,10 +29,10 @@ struct LoadVector : public InstructionT<LoadVector> {
 	static const int op_code = 0;
 
 	/* load elements from a global array into a local vector */
-	const uint64_t source_array :8;
-	const uint64_t target_vector :8;
-	const uint64_t start_idx :32;
-	const uint64_t nelts : 16;
+	const uint16_t source_array :8;
+	const uint16_t target_vector :8;
+	const uint32_t start_idx;
+	const uint16_t nelts;
 
 	LoadVector(int source_array, int target_vector, int start_idx, int nelts)
 	  : source_array(source_array),
@@ -51,10 +49,10 @@ struct StoreVector : public InstructionT<StoreVector> {
 	 * starting from target_array[start_idx] until
 	 * target_array[start_idx + nelts]
 	 */
-	const uint64_t target_array :8;
-	const uint64_t source_vector :8;
-	const uint64_t start_idx :32;
-	const uint64_t nelts : 16;
+	const uint16_t target_array :8;
+	const uint16_t source_vector :8;
+	const uint32_t start_idx;
+	const uint16_t nelts;
 
 	StoreVector(int target_array, int source_vector, int start_idx, int nelts)
       : target_array(target_array),
@@ -70,11 +68,11 @@ struct Map : public InstructionT<Map> {
 	 * run given subprogram, write values of output_elt register into target_vector.
 	 * The subprogram is just the next n_ops instructions.
 	 */
-	const uint64_t source_vector : 16;
-	const uint64_t target_vector : 16;
-	const uint64_t input_elt :8;
-	const uint64_t output_elt :8;
-	const uint64_t n_ops :16;
+	const uint16_t source_vector;
+	const uint16_t target_vector;
+	const uint16_t input_elt;
+	const uint16_t output_elt;
+	const uint16_t n_ops;
 
 	Map(int source_vector, int target_vector, int input_elt, int output_elt, int n_ops)
     	: source_vector(source_vector),
@@ -90,9 +88,9 @@ struct Add : public InstructionT<Add> {
 	/* for now this will only work as a scalar operation,
 	 * expecting scalar float registers as arguments x,y,target
 	 */
-	const uint64_t arg1 :16;
-	const uint64_t arg2 :16;
-	const uint64_t result :16;
+	const uint32_t arg1 :8;
+	const uint32_t arg2 :8;
+	const uint32_t result :16;
 
 	Add(int arg1, int arg2, int result) : arg1(arg1), arg2(arg2), result(result) {}
 };

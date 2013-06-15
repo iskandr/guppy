@@ -23,6 +23,8 @@ static const int kNumVecRegisters = 4;
 static const int kNumIntRegisters = 10;
 static const int kNumFloatRegisters = 10;
 
+static const int kMaxProgramLength = 1000; 
+
 __global__ void run(char* program,
                     long program_nbytes,
                     float** values,
@@ -30,6 +32,7 @@ __global__ void run(char* program,
                     float* constants,
                     long n_consts) {
 
+  
   __shared__ float vectors[kNumVecRegisters][kRegisterWidth];
 
   __shared__ int   int_scalars[kNumIntRegisters];
@@ -38,35 +41,41 @@ __global__ void run(char* program,
 
   const int block_offset = blockIdx.y * gridDim.x + blockIdx.x;
   const int local_idx = threadIdx.y * blockDim.x + threadIdx.x;
-  const int block_idx = block_offset * kRegisterWidth;
-  const int global_idx = block_idx + (local_idx * kOpsPerThread);
+  const int block_start_idx = block_offset * kRegisterWidth;
+  const int global_idx = block_start_idx + (local_idx * kOpsPerThread);
 
+ 
+  /* preload program so that we don't make 
+     repeated global memory requests 
+  */  
+  __shared__ char  cached_program[kMaxProgramLength];
+  for (int i = local_idx; i < program_nbytes; i+=kThreadsPerBlock) {
+    cached_program[i] = program[i];      
+  }  
+  
   // by convention, the first int register contains the global index
-  int_scalars[BlockStart] = block_idx; 
+  int_scalars[BlockStart] = block_offset; 
   int_scalars[VecWidth] = kRegisterWidth;
-  int_scalars[BlockEltStart] = block_idx * VecWidth; 
+  int_scalars[BlockEltStart] = block_offset * kRegisterWidth; 
 
   int pc = 0;
   Instruction* instr;
   while (pc < program_nbytes) {
     
-    instr = (Instruction*) &program[pc];
+    instr = (Instruction*) &cached_program[pc];
     pc += instr->size;
 
     switch (instr->code) {
     case LoadVector::op_code: {
       LoadVector* load_slice = (LoadVector*) instr;
       
-      const int vec_idx = load_slice->target_vector; 
-      float* reg = vectors[vec_idx];
-      const int array_idx = load_slice->source_array; 
-      const float* src = values[array_idx];
+      float* reg = vectors[load_slice->target_vector]; 
+      const float* src = values[load_slice->source_array];
       const int start = int_scalars[load_slice->start_idx] + local_idx;
       int nelts = int_scalars[load_slice->nelts];
-      nelts = nelts ? nelts <= kRegisterWidth : kRegisterWidth;
-      const int stop = start + nelts;
-      for (int i = start; i < stop; i += kOpsPerThread) {
-        const float elt = src[i]; 
+      nelts = nelts <= kRegisterWidth ? nelts : kRegisterWidth; 
+      for (int i = 0; i < nelts; i += kThreadsPerBlock) { 
+        const float elt = src[start+i]; 
         reg[i] = elt;
       }
       break;
@@ -78,11 +87,10 @@ __global__ void run(char* program,
       float* dst = values[store_vector->target_array];
       const int start = int_scalars[store_vector->start_idx] + local_idx;
       int nelts = int_scalars[store_vector->nelts];
-      nelts = nelts ? nelts <= kRegisterWidth : kRegisterWidth;
-      const int stop = start + nelts;
-      for (int i = start; i < stop; i += kOpsPerThread) {
+      nelts = nelts <= kRegisterWidth ? nelts : kRegisterWidth; 
+      for (int i = 0; i < nelts; i += kThreadsPerBlock) { 
         const float elt = reg[i]; 
-        dst[i] = elt; 
+        dst[i+start] = elt; 
       }
       break;
     }
@@ -114,7 +122,7 @@ __global__ void run(char* program,
 }
 
 int main(int argc, const char** argv) {
-  int N = 2 << 24;
+  int N = 10000 * kRegisterWidth; //2 << 24;
 
   Vec a(N, 1.0);
   Vec b(N, 2.0);
@@ -143,7 +151,7 @@ int main(int argc, const char** argv) {
   printf("add size %d\n", sizeof(Add));
 
   //  for (int i = 1; i <= N; i *= 2) {
-  int total_blocks = divup(N, kRegisterWidth * kThreadsPerBlock * kOpsPerThread);
+  int total_blocks = divup(N, kRegisterWidth);
   dim3 blocks;
   blocks.x = int(ceil(sqrt(total_blocks)));
   blocks.y = int(ceil(sqrt(total_blocks)));
