@@ -41,7 +41,7 @@ __global__ void run(char* program,
   // performance -- due to bank conflicts? 
   __shared__ float vectors[kNumVecRegisters][kRegisterWidth+1];
 
-  __shared__ int   int_scalars[kNumIntRegisters];
+  __shared__ int32_t   int_scalars[kNumIntRegisters];
   __shared__ float float_scalars[kNumFloatRegisters];
   
 
@@ -79,15 +79,13 @@ __global__ void run(char* program,
     switch (instr->code) {
     case LoadVector::op_code: {
       LoadVector* load_slice = (LoadVector*) instr;
-      
       float* reg = vectors[load_slice->target_vector]; 
       const float* src = values[load_slice->source_array];
-      const int start = int_scalars[load_slice->start_idx] + local_idx;
+      const int start = int_scalars[load_slice->start_idx];
       int nelts = int_scalars[load_slice->nelts];
       nelts = nelts <= kRegisterWidth ? nelts : kRegisterWidth; 
-      for (int i = 0; i < nelts; i += kThreadsPerBlock) { 
-        const float elt = src[start+i]; 
-        reg[i] = elt;
+      for (int i = local_idx; i < nelts; i += kThreadsPerBlock) { 
+        reg[i] = src[start+i];
       }
       break;
     }
@@ -96,12 +94,11 @@ __global__ void run(char* program,
       StoreVector* store_vector = (StoreVector*) instr;
       const float* reg = vectors[store_vector->source_vector];
       float* dst = values[store_vector->target_array];
-      const int start = int_scalars[store_vector->start_idx] + local_idx;
+      const int start = int_scalars[store_vector->start_idx];
       int nelts = int_scalars[store_vector->nelts];
       nelts = nelts <= kRegisterWidth ? nelts : kRegisterWidth; 
-      for (int i = 0; i < nelts; i += kThreadsPerBlock) { 
-        const float elt = reg[i]; 
-        dst[i+start] = elt; 
+      for (int i = local_idx; i < nelts; i += kThreadsPerBlock) { 
+        dst[i+start] = reg[i]; 
       }
       break;
     }
@@ -111,7 +108,9 @@ __global__ void run(char* program,
       const float* a = vectors[add->arg1];
       const float* b = vectors[add->arg2];
       float *c = vectors[add->result];
-      for (int i = local_idx; i < kRegisterWidth; i += kOpsPerThread) {
+      for (int i = local_idx*kOpsPerThread; 
+           i < (local_idx+1)*kOpsPerThread; 
+           ++i) { 
         c[i] = a[i] + b[i];
       }
       break;
