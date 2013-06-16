@@ -24,13 +24,13 @@ static const int kVectorPadding = 1;
 
 static const int kNumVecRegisters = 4;
 static const int kNumIntRegisters = 10;
-static const int kNumFloatRegisters =10;
+static const int kNumFloatRegisters = 10;
 
 static const int kMaxProgramLength = 1000; 
 
 #define PREFETCH_GPU_BYTECODE 0
 
-#define VECTOR_LOAD_CONTIGUOUS 0
+#define VECTOR_LOAD_CONTIGUOUS 1
 #define VECTOR_LOAD_CHECK_BOUNDS 1
 
 #define VECTOR_STORE_CONTIGUOUS 0
@@ -39,17 +39,6 @@ static const int kMaxProgramLength = 1000;
 #define VECTOR_OPS_CONTIGUOUS 1 
 #define SCALAR_REGISTERS_SHARED 1
 
-#if VECTOR_OPS_CONTIGUOUS
-  #define VECLOOP \
-    for (int i = local_idx * kOpsPerThread; i < (local_idx+1)*kOpsPerThread; ++i) 
-#else
-  #define VECLOOP \
-    for (int i = local_idx; i < kVectorWidth; i += kOpsPerThread) 
-#endif
-
-
-
-
 __global__ void run(char* program,
                     long program_nbytes,
                     float** values,
@@ -57,7 +46,6 @@ __global__ void run(char* program,
                     float* constants,
                     long n_consts) {
 
-  
   // making vector slightly longer seems to minorly improve 
   // performance -- due to bank conflicts? 
   __shared__ float vectors[kNumVecRegisters][kVectorWidth+kVectorPadding];
@@ -109,6 +97,7 @@ __global__ void run(char* program,
       #if VECTOR_LOAD_CHECK_BOUNDS
         nelts = nelts <= kVectorWidth ? nelts : kVectorWidth; 
       #endif 
+
       #if VECTOR_LOAD_CONTIGUOUS 
         int stop_i = (local_idx+1)*kOpsPerThread;
         stop_i = stop_i <= nelts ? stop_i : nelts; 
@@ -133,6 +122,7 @@ __global__ void run(char* program,
       #if VECTOR_STORE_CHECK_BOUNDS
         nelts = nelts <= kVectorWidth ? nelts : kVectorWidth; 
       #endif 
+
       #if VECTOR_STORE_CONTIGUOUS 
         int stop_i = (local_idx+1)*kOpsPerThread; 
         stop_i = stop_i <= nelts ? stop_i : nelts; 
@@ -152,10 +142,11 @@ __global__ void run(char* program,
       const float* a = vectors[add->arg1];
       const float* b = vectors[add->arg2];
       float *c = vectors[add->result];
-      #if VECTOR_OPS_CONTIGUOUS 
+      #if VECTOR_OPS_CONTIGUOUS  
         #pragma unroll 9
         for (int i = local_idx*kOpsPerThread; i < (local_idx+1)*kOpsPerThread; ++i) {
       #else 
+        #pragma unroll 9
         for (int i = local_idx; i < kVectorWidth; i += kOpsPerThread) {
       #endif      
         c[i] = a[i] + b[i];
