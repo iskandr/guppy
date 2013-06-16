@@ -18,16 +18,37 @@ static const int kOpsPerThread = 9;
 
 static const int kThreadsPerBlock = kThreadsX * kThreadsY;
 
-static const int kRegisterWidth = kThreadsPerBlock * kOpsPerThread;
+static const int kVectorWidth = kThreadsPerBlock * kOpsPerThread;
+
+static const int kVectorPadding = 1;
 
 static const int kNumVecRegisters = 4;
-
 static const int kNumIntRegisters = 10;
-static const int kNumFloatRegisters = 10;
+static const int kNumFloatRegisters =10;
 
 static const int kMaxProgramLength = 1000; 
 
-#define PREFETCH_GPU_BYTECODE 
+#define PREFETCH_GPU_BYTECODE 0
+
+#define VECTOR_LOAD_CONTIGUOUS 0
+#define VECTOR_LOAD_CHECK_BOUNDS 1
+
+#define VECTOR_STORE_CONTIGUOUS 0
+#define VECTOR_STORE_CHECK_BOUNDS 1
+
+#define VECTOR_OPS_CONTIGUOUS 1 
+#define SCALAR_REGISTERS_SHARED 1
+
+#if VECTOR_OPS_CONTIGUOUS
+  #define VECLOOP \
+    for (int i = local_idx * kOpsPerThread; i < (local_idx+1)*kOpsPerThread; ++i) 
+#else
+  #define VECLOOP \
+    for (int i = local_idx; i < kVectorWidth; i += kOpsPerThread) 
+#endif
+
+
+
 
 __global__ void run(char* program,
                     long program_nbytes,
@@ -39,19 +60,21 @@ __global__ void run(char* program,
   
   // making vector slightly longer seems to minorly improve 
   // performance -- due to bank conflicts? 
-  __shared__ float vectors[kNumVecRegisters][kRegisterWidth+1];
+  __shared__ float vectors[kNumVecRegisters][kVectorWidth+kVectorPadding];
 
-  __shared__ int32_t   int_scalars[kNumIntRegisters];
-  __shared__ float float_scalars[kNumFloatRegisters];
-  
-
+  #if SCALAR_REGISTERS_SHARED
+    __shared__ int32_t int_scalars[kNumIntRegisters];
+    __shared__ float   float_scalars[kNumFloatRegisters];
+  #else
+    int32_t int_scalars[kNumIntRegisters];
+    float   float_scalars[kNumFloatRegisters];
+  #endif
+ 
   const int block_offset = blockIdx.y * gridDim.x + blockIdx.x;
   const int local_idx = threadIdx.y * blockDim.x + threadIdx.x;
-  const int block_start_idx = block_offset * kRegisterWidth;
-  const int global_idx = block_start_idx + (local_idx * kOpsPerThread);
 
  
-  #ifdef PREFETCH_GPU_BYTECODE 
+  #if PREFETCH_GPU_BYTECODE 
     /* preload program so that we don't make 
        repeated global memory requests 
     */  
@@ -62,14 +85,14 @@ __global__ void run(char* program,
   #endif 
   // by convention, the first int register contains the global index
   int_scalars[BlockStart] = block_offset; 
-  int_scalars[VecWidth] = kRegisterWidth;
-  int_scalars[BlockEltStart] = block_offset * kRegisterWidth; 
+  int_scalars[VecWidth] = kVectorWidth;
+  int_scalars[BlockEltStart] = block_offset * kVectorWidth; 
 
   int pc = 0;
   Instruction* instr;
   while (pc < program_nbytes) {
     
-    #ifdef PREFETCH_GPU_BYTECODE 
+    #if PREFETCH_GPU_BYTECODE 
       instr = (Instruction*) &cached_program[pc];
     #else
       instr = (Instruction*) &program[pc]; 
@@ -83,11 +106,21 @@ __global__ void run(char* program,
       const float* src = values[load_slice->source_array];
       const int start = int_scalars[load_slice->start_idx];
       int nelts = int_scalars[load_slice->nelts];
-      nelts = nelts <= kRegisterWidth ? nelts : kRegisterWidth; 
-      #pragma unroll 9
-      for (int i = local_idx; i < nelts; i += kThreadsPerBlock) { 
-        reg[i] = src[start+i];
+      #if VECTOR_LOAD_CHECK_BOUNDS
+        nelts = nelts <= kVectorWidth ? nelts : kVectorWidth; 
+      #endif 
+      #if VECTOR_LOAD_CONTIGUOUS 
+        int stop_i = (local_idx+1)*kOpsPerThread;
+        stop_i = stop_i <= nelts ? stop_i : nelts; 
+        #pragma unroll 9
+        for (int i = local_idx*kOpsPerThread; i < stop_i; ++i) {
+      #else 
+        #pragma unroll 9
+        for (int i = local_idx; i < nelts; i += kOpsPerThread) { 
+      #endif 
+          reg[i] = src[start+i];
       }
+       
       break;
     }
 
@@ -97,11 +130,20 @@ __global__ void run(char* program,
       float* dst = values[store_vector->target_array];
       const int start = int_scalars[store_vector->start_idx];
       int nelts = int_scalars[store_vector->nelts];
-      nelts = nelts <= kRegisterWidth ? nelts : kRegisterWidth; 
-      #pragma unroll 9
-      for (int i = local_idx; i < nelts; i += kThreadsPerBlock) { 
-        dst[i+start] = reg[i]; 
-      }
+      #if VECTOR_STORE_CHECK_BOUNDS
+        nelts = nelts <= kVectorWidth ? nelts : kVectorWidth; 
+      #endif 
+      #if VECTOR_STORE_CONTIGUOUS 
+        int stop_i = (local_idx+1)*kOpsPerThread; 
+        stop_i = stop_i <= nelts ? stop_i : nelts; 
+        #pragma unroll 9
+        for (int i = local_idx*kOpsPerThread; i < stop_i; ++i) {
+      #else
+        #pragma unroll 9
+        for (int i = local_idx; i < nelts; i += kOpsPerThread) { 
+      #endif
+          dst[i+start] = reg[i]; 
+        }
       break;
     }
 
@@ -110,10 +152,12 @@ __global__ void run(char* program,
       const float* a = vectors[add->arg1];
       const float* b = vectors[add->arg2];
       float *c = vectors[add->result];
-      #pragma unroll 9 
-      for (int i = local_idx*kOpsPerThread; 
-           i < (local_idx+1)*kOpsPerThread; 
-           ++i) { 
+      #if VECTOR_OPS_CONTIGUOUS 
+        #pragma unroll 9
+        for (int i = local_idx*kOpsPerThread; i < (local_idx+1)*kOpsPerThread; ++i) {
+      #else 
+        for (int i = local_idx; i < kVectorWidth; i += kOpsPerThread) {
+      #endif      
         c[i] = a[i] + b[i];
       }
       break;
@@ -123,7 +167,7 @@ __global__ void run(char* program,
       Map* map = (Map*) instr;
       /*
       const float* reg = registers[op.x]; 
-      for (int i = local_idx; i < kRegisterWidth; i += kOpsPerThread) {
+      for (int i = local_idx; i < kVectorWidth; i += kOpsPerThread) {
         elt = reg[i];
 
       }
@@ -135,12 +179,11 @@ __global__ void run(char* program,
 }
 
 int main(int argc, const char** argv) {
-  int N = 10000 * kRegisterWidth; //2 << 24;
+  int N = 10000 * kVectorWidth; //2 << 24;
 
   Vec a(N, 1.0);
   Vec b(N, 2.0);
   Vec c(N);
-
   const int n_values = 3;
   float* h_values[n_values];
   h_values[0] = a.get_gpu_data();
@@ -163,8 +206,7 @@ int main(int argc, const char** argv) {
   printf("store size %d\n", sizeof(StoreVector));
   printf("add size %d\n", sizeof(Add));
 
-  //  for (int i = 1; i <= N; i *= 2) {
-  int total_blocks = divup(N, kRegisterWidth);
+  int total_blocks = divup(N, kVectorWidth);
   dim3 blocks;
   blocks.x = int(ceil(sqrt(total_blocks)));
   blocks.y = int(ceil(sqrt(total_blocks)));
