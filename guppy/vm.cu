@@ -112,6 +112,37 @@ __global__ void run(char* program,
        
       break;
     }
+    
+    case LoadVector2::op_code: {
+      LoadVector2* load_slice = (LoadVector2*) instr;
+      
+      float* reg1 = vectors[load_slice->target_vector1]; 
+      const float* src1 = values[load_slice->source_array1];
+      
+      float* reg2 = vectors[load_slice->target_vector2]; 
+      const float* src2 = values[load_slice->source_array2];
+      
+      const int start = int_scalars[load_slice->start_idx];
+      int nelts = int_scalars[load_slice->nelts];
+      #if VECTOR_LOAD_CHECK_BOUNDS
+        nelts = nelts <= kVectorWidth ? nelts : kVectorWidth; 
+      #endif 
+
+      #if VECTOR_LOAD_CONTIGUOUS 
+        int stop_i = (local_idx+1)*kOpsPerThread;
+        stop_i = stop_i <= nelts ? stop_i : nelts; 
+        #pragma unroll 9
+        for (int i = local_idx*kOpsPerThread; i < stop_i; ++i) {
+      #else 
+        #pragma unroll 9
+        for (int i = local_idx; i < nelts; i += kOpsPerThread) { 
+      #endif 
+          reg1[i] = src1[start+i];
+          reg2[i] = src2[start+i];
+      }
+       
+      break;
+    }
 
     case StoreVector::op_code: {
       StoreVector* store_vector = (StoreVector*) instr;
@@ -142,6 +173,7 @@ __global__ void run(char* program,
       const float* a = vectors[add->arg1];
       const float* b = vectors[add->arg2];
       float *c = vectors[add->result];
+      /*
       #if VECTOR_OPS_CONTIGUOUS  
         #pragma unroll 9
         for (int i = local_idx*kOpsPerThread; i < (local_idx+1)*kOpsPerThread; ++i) {
@@ -151,6 +183,7 @@ __global__ void run(char* program,
       #endif      
         c[i] = a[i] + b[i];
       }
+      */
       break;
     }
     
@@ -186,6 +219,7 @@ int main(int argc, const char** argv) {
   cudaMemcpy(d_values, h_values, sizeof(float*) * n_values, cudaMemcpyHostToDevice);
 
   Program h_program;
+  //h_program.add(LoadVector2(a0,v0,a1,v1,BlockEltStart,VecWidth));
   h_program.add(LoadVector(a0,v0,BlockEltStart,VecWidth));
   h_program.add(LoadVector(a1,v1,BlockEltStart,VecWidth));
   h_program.add(Add(v0,v1,v2));

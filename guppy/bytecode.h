@@ -15,7 +15,7 @@ enum Arrays { a0, a1, a2, a3 };
 struct Instruction {
 /* every instruction must have a unique code and a size in number of bytes */
 	const uint16_t code :8;
-  	const uint16_t size :8;
+  	const uint16_t size :8; 
   	Instruction(uint16_t code, uint16_t size) : code(code), size(size) {}
 };
 
@@ -36,14 +36,38 @@ struct LoadVector : public InstructionT<LoadVector> {
 
 	LoadVector(int source_array, int target_vector, int start_idx, int nelts)
 	  : source_array(source_array),
-		target_vector(target_vector),
-		start_idx(start_idx),
-		nelts(nelts) {}
+	    target_vector(target_vector),
+	    start_idx(start_idx),
+	    nelts(nelts) {}
+};
+
+
+struct LoadVector2 : public InstructionT<LoadVector2> {
+	static const int op_code = 1;
+
+	/* load elements from a global array into a local vector */
+	const uint16_t source_array1 :8;
+	const uint16_t target_vector1 :8;
+	const uint16_t source_array2 :8;
+	const uint16_t target_vector2 :8;
+      
+	const uint32_t start_idx;
+	const uint16_t nelts;
+
+	LoadVector2(int source_array1, int target_vector1,
+                    int source_array2, int target_vector2, 
+                    int start_idx, int nelts)
+	  : source_array1(source_array1),
+            target_vector1(target_vector1),
+            source_array2(source_array2),
+            target_vector2(target_vector2),
+            start_idx(start_idx),
+	    nelts(nelts) {}
 
 };
 
 struct StoreVector : public InstructionT<StoreVector> {
-	static const int op_code = 1;
+	static const int op_code = 2;
 
     /* store elements of a vector into a global array
 	 * starting from target_array[start_idx] until
@@ -56,13 +80,13 @@ struct StoreVector : public InstructionT<StoreVector> {
 
 	StoreVector(int target_array, int source_vector, int start_idx, int nelts)
       : target_array(target_array),
-	    source_vector(source_vector),
-		start_idx(start_idx),
-	    nelts(nelts) {}
+	source_vector(source_vector),
+	start_idx(start_idx),
+	nelts(nelts) {}
 };
 
 struct Map : public InstructionT<Map> {
-	static const int op_code = 2;
+	static const int op_code = 3;
 
 	/* map over element of source vector (which are loaded into scalar register input_elt)
 	 * run given subprogram, write values of output_elt register into target_vector.
@@ -83,14 +107,14 @@ struct Map : public InstructionT<Map> {
 };
 
 struct Add : public InstructionT<Add> {
-	static const int op_code = 3;
+	static const int op_code = 4;
 
 	/* for now this will only work as a scalar operation,
 	 * expecting scalar float registers as arguments x,y,target
 	 */
 	const uint32_t arg1 :8;
 	const uint32_t arg2 :8;
-	const uint32_t result :16;
+	const uint16_t result;
 
 	Add(int arg1, int arg2, int result) : arg1(arg1), arg2(arg2), result(result) {}
 };
