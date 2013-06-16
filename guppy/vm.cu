@@ -11,40 +11,100 @@
 #undef _GLIBCXX_ATOMIC_BUILTINS
 #undef _GLIBCXX_USE_INT128
 static const int kThreadsX = 8; // 16;
-static const int kThreadsY = 4; // 16;
+static const int kThreadsY = 8; // 16;
 
 // seems to give slightly better performance than kOpsPerThread = 8
-static const int kOpsPerThread = 9;
+static const int kOpsPerThread = 5;
 
 static const int kThreadsPerBlock = kThreadsX * kThreadsY;
 
 static const int kVectorWidth = kThreadsPerBlock * kOpsPerThread;
 
-static const int kVectorPadding = 1;
+static const int kVectorPadding = 0;
 
 static const int kNumVecRegisters = 4;
 static const int kNumIntRegisters = 10;
 static const int kNumFloatRegisters = 10;
 
-static const int kMaxProgramLength = 1000; 
 
-#define PREFETCH_GPU_BYTECODE 0
 
-#define VECTOR_LOAD_CONTIGUOUS 1
-#define VECTOR_LOAD_CHECK_BOUNDS 1
+#ifndef PREFETCH_GPU_BYTECODE 
+  #define PREFETCH_GPU_BYTECODE 0
+#endif 
 
-#define VECTOR_STORE_CONTIGUOUS 0
-#define VECTOR_STORE_CHECK_BOUNDS 1
+#if PREFETCH_GPU_BYTECODE
+  static const int kMaxProgramLength = 500; 
+#endif 
 
-#define VECTOR_OPS_CONTIGUOUS 1 
-#define SCALAR_REGISTERS_SHARED 1
+#ifndef VECTOR_LOAD_CONTIGUOUS
+  #define VECTOR_LOAD_CONTIGUOUS 1
+#endif 
 
+#ifndef VECTOR_LOAD_CHECK_BOUNDS
+  #define VECTOR_LOAD_CHECK_BOUNDS 1
+#endif 
+
+#ifndef VECTOR_STORE_CONTIGUOUS
+  #define VECTOR_STORE_CONTIGUOUS 1
+#endif
+
+#ifndef VECTOR_STORE_CHECK_BOUNDS
+  #define VECTOR_STORE_CHECK_BOUNDS 1
+#endif 
+
+#ifndef VECTOR_OPS_CONTIGUOUS
+  #define VECTOR_OPS_CONTIGUOUS 1 
+#endif
+
+#ifndef SCALAR_REGISTERS_SHARED
+  #define SCALAR_REGISTERS_SHARED 0
+#endif 
+
+ 
+#if VECTOR_LOAD_CONTIGUOUS 
+  #define MEMORY_ACCESS_LOOP \
+    int stop_i = (local_idx+1)*kOpsPerThread; \
+    stop_i = stop_i <= nelts ? stop_i : nelts; \
+    for (int i = local_idx*kOpsPerThread; i < stop_i; ++i)
+#else 
+  #define MEMORY_ACCESS_LOOP \
+    for (int i = local_idx; i < nelts; i += kOpsPerThread) 
+#endif
+ 
+#if VECTOR_OPS_CONTIGUOUS  
+  #define VECTOR_OP_LOOP \
+    for (int i = local_idx*kOpsPerThread;\
+         i < (local_idx+1)*kOpsPerThread; \
+         ++i) 
+#else 
+  #define VECTOR_OP_LOOP \
+     for (int i = local_idx; i < kVectorWidth; i += kOpsPerThread) 
+#endif     
+/*
+__device__ inline void run_local_instruction(
+    Instruction* instr, 
+    int local_idx, 
+    float** values,
+    float** vectors, 
+    int32_t* int_scalars, 
+    float* float_scalars,  
+    const float* constants) {
+  switch(instr->code) {
+    case ADD: {
+      Add* add = (Add*) instr; 
+      float a = float_scalars[instr->arg1];
+      float b = float_scalars[instr->arg2];
+      float_scalars[instr->result] = a+b;
+      break;  
+    }
+  }  
+}
+                               
+*/
 __global__ void run(char* program,
                     long program_nbytes,
                     float** values,
-                    long n_args,
-                    float* constants,
-                    long n_consts) {
+                    const float* constants) {
 
   // making vector slightly longer seems to minorly improve 
   // performance -- due to bank conflicts? 
@@ -60,8 +120,9 @@ __global__ void run(char* program,
  
   const int block_offset = blockIdx.y * gridDim.x + blockIdx.x;
   const int local_idx = threadIdx.y * blockDim.x + threadIdx.x;
+  const int local_vector_offset = local_idx * kOpsPerThread; 
+  const int next_vector_offset = local_vector_offset + kOpsPerThread; 
 
- 
   #if PREFETCH_GPU_BYTECODE 
     /* preload program so that we don't make 
        repeated global memory requests 
@@ -96,17 +157,9 @@ __global__ void run(char* program,
       int nelts = int_scalars[load_slice->nelts];
       #if VECTOR_LOAD_CHECK_BOUNDS
         nelts = nelts <= kVectorWidth ? nelts : kVectorWidth; 
-      #endif 
-
-      #if VECTOR_LOAD_CONTIGUOUS 
-        int stop_i = (local_idx+1)*kOpsPerThread;
-        stop_i = stop_i <= nelts ? stop_i : nelts; 
-        #pragma unroll 9
-        for (int i = local_idx*kOpsPerThread; i < stop_i; ++i) {
-      #else 
-        #pragma unroll 9
-        for (int i = local_idx; i < nelts; i += kOpsPerThread) { 
-      #endif 
+      #endif
+        
+      MEMORY_ACCESS_LOOP { 
           reg[i] = src[start+i];
       }
        
@@ -127,16 +180,8 @@ __global__ void run(char* program,
       #if VECTOR_LOAD_CHECK_BOUNDS
         nelts = nelts <= kVectorWidth ? nelts : kVectorWidth; 
       #endif 
-
-      #if VECTOR_LOAD_CONTIGUOUS 
-        int stop_i = (local_idx+1)*kOpsPerThread;
-        stop_i = stop_i <= nelts ? stop_i : nelts; 
-        #pragma unroll 9
-        for (int i = local_idx*kOpsPerThread; i < stop_i; ++i) {
-      #else 
-        #pragma unroll 9
-        for (int i = local_idx; i < nelts; i += kOpsPerThread) { 
-      #endif 
+        
+      MEMORY_ACCESS_LOOP { 
           reg1[i] = src1[start+i];
           reg2[i] = src2[start+i];
       }
@@ -153,18 +198,11 @@ __global__ void run(char* program,
       #if VECTOR_STORE_CHECK_BOUNDS
         nelts = nelts <= kVectorWidth ? nelts : kVectorWidth; 
       #endif 
-
-      #if VECTOR_STORE_CONTIGUOUS 
-        int stop_i = (local_idx+1)*kOpsPerThread; 
-        stop_i = stop_i <= nelts ? stop_i : nelts; 
-        #pragma unroll 9
-        for (int i = local_idx*kOpsPerThread; i < stop_i; ++i) {
-      #else
-        #pragma unroll 9
-        for (int i = local_idx; i < nelts; i += kOpsPerThread) { 
-      #endif
+      
+        
+      MEMORY_ACCESS_LOOP {
           dst[i+start] = reg[i]; 
-        }
+      }
       break;
     }
 
@@ -173,29 +211,29 @@ __global__ void run(char* program,
       const float* a = vectors[add->arg1];
       const float* b = vectors[add->arg2];
       float *c = vectors[add->result];
-      /*
-      #if VECTOR_OPS_CONTIGUOUS  
-        #pragma unroll 9
-        for (int i = local_idx*kOpsPerThread; i < (local_idx+1)*kOpsPerThread; ++i) {
-      #else 
-        #pragma unroll 9
-        for (int i = local_idx; i < kVectorWidth; i += kOpsPerThread) {
-      #endif      
+        
+      VECTOR_OP_LOOP {  
         c[i] = a[i] + b[i];
       }
-      */
       break;
     }
-    
+ 
+    case IAdd::op_code: {
+      IAdd* iadd = (IAdd*) instr;
+      const float* a = vectors[iadd->arg];
+      float* b = vectors[iadd->result];
+     
+        
+      VECTOR_OP_LOOP {  
+        b[i] += a[i]; 
+      }
+      break;
+    }
+      
     case Map::op_code: {
       Map* map = (Map*) instr;
-      /*
-      const float* reg = registers[op.x]; 
-      for (int i = local_idx; i < kVectorWidth; i += kOpsPerThread) {
-        elt = reg[i];
-
-      }
-      */
+      const float* source = vectors[map->source_vector];
+      float* target = vectors[map->target_vector];    
       break;
     }
     }
@@ -219,11 +257,13 @@ int main(int argc, const char** argv) {
   cudaMemcpy(d_values, h_values, sizeof(float*) * n_values, cudaMemcpyHostToDevice);
 
   Program h_program;
-  //h_program.add(LoadVector2(a0,v0,a1,v1,BlockEltStart,VecWidth));
-  h_program.add(LoadVector(a0,v0,BlockEltStart,VecWidth));
-  h_program.add(LoadVector(a1,v1,BlockEltStart,VecWidth));
-  h_program.add(Add(v0,v1,v2));
-  h_program.add(StoreVector(a2, v2, BlockEltStart,VecWidth));
+  h_program.add(LoadVector2(a0,v0,a1,v1,BlockEltStart,VecWidth));
+  //h_program.add(LoadVector(a0,v0,BlockEltStart,VecWidth));
+  //h_program.add(LoadVector(a1,v1,BlockEltStart,VecWidth));
+  //h_program.add(Map2(h_program.add(Add(v0,v1,v2));
+  h_program.add(IAdd(v1,v0));
+
+  h_program.add(StoreVector(a2, v1, BlockEltStart,VecWidth));
 
   printf("%d %d\n", *((uint16_t*)&h_program._ops[0]), *((uint16_t*) &h_program._ops[2]));
   printf("program length: %d\n", h_program.size());
@@ -248,7 +288,7 @@ int main(int argc, const char** argv) {
   run<<<blocks, threads>>>(h_program.to_gpu(),
   		           h_program.size(),
     		           d_values,
-    		           n_values, 0, 0);
+    		           0);
   cudaDeviceSynchronize();
   CHECK_CUDA();
   double ed = Now();

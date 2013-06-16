@@ -14,8 +14,8 @@ enum Arrays { a0, a1, a2, a3 };
 
 struct Instruction {
 /* every instruction must have a unique code and a size in number of bytes */
-	const uint16_t code :8;
-  	const uint16_t size :8; 
+	const uint16_t code;
+  	const uint16_t size ; 
   	Instruction(uint16_t code, uint16_t size) : code(code), size(size) {}
 };
 
@@ -29,8 +29,8 @@ struct LoadVector : public InstructionT<LoadVector> {
 	static const int op_code = 0;
 
 	/* load elements from a global array into a local vector */
-	const uint16_t source_array :8;
-	const uint16_t target_vector :8;
+	const uint16_t source_array;
+	const uint16_t target_vector;
 	const uint32_t start_idx;
 	const uint16_t nelts;
 
@@ -46,10 +46,10 @@ struct LoadVector2 : public InstructionT<LoadVector2> {
 	static const int op_code = 1;
 
 	/* load elements from a global array into a local vector */
-	const uint16_t source_array1 :8;
-	const uint16_t target_vector1 :8;
-	const uint16_t source_array2 :8;
-	const uint16_t target_vector2 :8;
+	const uint16_t source_array1;
+	const uint16_t target_vector1;
+	const uint16_t source_array2;
+	const uint16_t target_vector2;
       
 	const uint32_t start_idx;
 	const uint16_t nelts;
@@ -73,8 +73,8 @@ struct StoreVector : public InstructionT<StoreVector> {
 	 * starting from target_array[start_idx] until
 	 * target_array[start_idx + nelts]
 	 */
-	const uint16_t target_array :8;
-	const uint16_t source_vector :8;
+	const uint16_t target_array;
+	const uint16_t source_vector;
 	const uint32_t start_idx;
 	const uint16_t nelts;
 
@@ -85,38 +85,121 @@ struct StoreVector : public InstructionT<StoreVector> {
 	nelts(nelts) {}
 };
 
-struct Map : public InstructionT<Map> {
-	static const int op_code = 3;
-
-	/* map over element of source vector (which are loaded into scalar register input_elt)
-	 * run given subprogram, write values of output_elt register into target_vector.
-	 * The subprogram is just the next n_ops instructions.
-	 */
-	const uint16_t source_vector;
-	const uint16_t target_vector;
-	const uint16_t input_elt;
-	const uint16_t output_elt;
-	const uint16_t n_ops;
-
-	Map(int source_vector, int target_vector, int input_elt, int output_elt, int n_ops)
-    	: source_vector(source_vector),
-    	  target_vector(target_vector),
-    	  input_elt(input_elt),
-    	  output_elt(output_elt),
-    	  n_ops(n_ops) {}
-};
 
 struct Add : public InstructionT<Add> {
-	static const int op_code = 4;
+	static const int op_code = 3;
 
 	/* for now this will only work as a scalar operation,
 	 * expecting scalar float registers as arguments x,y,target
 	 */
-	const uint32_t arg1 :8;
-	const uint32_t arg2 :8;
 	const uint16_t result;
+	const uint16_t arg1;
+	const uint16_t arg2;
 
-	Add(int arg1, int arg2, int result) : arg1(arg1), arg2(arg2), result(result) {}
+	Add(int result, int arg1, int arg2) : result(result), arg1(arg1), arg2(arg2) {}
+};
+
+
+struct IAdd : public InstructionT<IAdd> { 
+  static const int op_code = 4;
+  /* in-place variant of add: x = x + y */ 
+  const uint16_t arg;
+  const uint16_t result;
+
+  IAdd(int result, int arg) : result(result), arg(arg) {}
+};
+
+struct Sub : public InstructionT<Sub> { 
+  static const int op_code = 4; 
+};
+
+
+struct ISub : public InstructionT<ISub> { 
+  static const int op_code = 5; 
+};
+
+
+struct Mul : public InstructionT<Mul> { 
+  static const int op_code = 6; 
+};
+
+
+struct IMul : public InstructionT<IMul> { 
+  static const int op_code = 7; 
+};
+
+struct Div : public InstructionT<Div> { 
+  static const int op_code = 8; 
+};
+
+struct IDiv : public InstructionT<IDiv> { 
+  static const int op_code = 9; 
+};
+
+struct MultiplyAdd : public InstructionT<MultiplyAdd> { 
+  static const int op_code = 10;
+};
+
+struct IMultiplyAdd : public InstructionT<IMultiplyAdd> { 
+  static const int op_code = 11;
+};
+
+struct Map : public InstructionT<Map> {
+  static const int op_code = 12;
+
+  /* map over elements of source vector 
+   * (which are loaded into scalar register input_elt)
+   * run given subprogram, 
+   * write values of output_elt register into target_vector.
+   * The subprogram is just the next n_ops instructions.
+   */ 
+  const uint64_t source_vector :16;
+  const uint64_t target_vector :16;
+  const uint64_t input_elt_reg :16;
+  const uint64_t output_elt_reg :16;
+ 
+  const uint16_t n_ops;
+
+  Map(int source_vector, int target_vector, int input_elt, int output_elt, int n_ops)
+  	: source_vector(source_vector),
+    	  target_vector(target_vector),
+    	  input_elt_reg(input_elt),
+    	  output_elt_reg(output_elt),
+    	  n_ops(n_ops) {}
+};
+
+
+struct Map2 : public InstructionT<Map2> {
+  static const int op_code = 13;
+
+  /* map over elements of two source vectors 
+   * (which are loaded into scalar register input_elt) 
+   * run given subprogram, 
+   * write values of output_elt register into target_vector.
+   * The subprogram is just the next n_ops instructions.
+   */
+  const uint64_t source_vector1  :16;
+  const uint64_t source_vector2  :16;
+  const uint64_t target_vector   :16;
+  const uint64_t input_elt_reg1  :16;
+
+  const uint64_t input_elt_reg2 :16; 
+  const uint64_t output_elt_reg  :16;
+  const uint64_t n_ops           :16; 
+
+  Map2(int source_vector1, int source_vector2, 
+       int target_vector, 
+       int input_elt_reg1, 
+       int input_elt_reg2, 
+       int output_elt_reg, 
+       int n_ops)
+    	: source_vector1(source_vector1),
+          source_vector2(source_vector2),
+    	  target_vector(target_vector),
+    	  input_elt_reg1(input_elt_reg1),
+          input_elt_reg2(input_elt_reg2), 
+    	  output_elt_reg(output_elt_reg),
+    	  n_ops(n_ops) {}
 };
 
 struct Program {
