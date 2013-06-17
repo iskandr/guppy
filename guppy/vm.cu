@@ -78,14 +78,13 @@ int main(int argc, const char** argv) {
   CHECK_CUDA();
   double ed = Now();
   fprintf(stderr, "%d elements in %.5f seconds; %.5f GFLOPS\n", N, ed - st, N * 1e-9 / (ed - st));
-//  }
 
   float* ad = a.get_host_data();
   printf("%f %f %f\n", ad[0], ad[10], ad[N - 200]);
   float* bd = b.get_host_data();
   printf("%f %f %f\n", bd[0], bd[10], bd[N - 200]);
   float* cd = c.get_host_data();
-  for (int i = 0; i < min(1024, N); ++i) {
+  for (int i = 0; i < min(64, N); ++i) {
     printf("%.0f ", cd[i]);
     if (i % 64 == 63) {
       printf("\n");

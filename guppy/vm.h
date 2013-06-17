@@ -124,9 +124,8 @@ __global__ void run(char* program,
          
       #pragma unroll 5
       for ( int i = local_idx * kOpsPerThread; i < (local_idx+1) * kOpsPerThread; ++i) { 
-      //for (int i = local_idx * kOpsPerThread; i < (local_idx+1)*kOpsPerThread; ++i) {
-      //MEMORY_ACCESS_LOOP { 
-          reg1[i] = src1[start+i];
+      //for (int i = local_idx; i < kVectorWidth; i += kOpsPerThread) {
+       	  reg1[i] = src1[start+i];
           reg2[i] = src2[start+i];
       }
        

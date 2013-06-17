@@ -25,13 +25,18 @@ static const int kNumDoubleRegisters = kNumFloatRegisters;
 
 
 #ifndef PREFETCH_GPU_BYTECODE 
-  #define PREFETCH_GPU_BYTECODE 0
+  #define PREFETCH_GPU_BYTECODE 1
 #endif 
 
 #if PREFETCH_GPU_BYTECODE
   static const int kMaxProgramLength = 500; 
 #endif 
+#ifndef SCALAR_REGISTERS_SHARED
+  #define SCALAR_REGISTERS_SHARED 1
+#endif 
 
+ 
+/* 
 #ifndef VECTOR_LOAD_CONTIGUOUS
   #define VECTOR_LOAD_CONTIGUOUS 1
 #endif 
@@ -52,11 +57,6 @@ static const int kNumDoubleRegisters = kNumFloatRegisters;
   #define VECTOR_OPS_CONTIGUOUS 1 
 #endif
 
-#ifndef SCALAR_REGISTERS_SHARED
-  #define SCALAR_REGISTERS_SHARED 0
-#endif 
-
- 
 #if VECTOR_LOAD_CONTIGUOUS 
   #define MEMORY_ACCESS_LOOP \
     int i = local_idx*kOpsPerThread;\
@@ -76,5 +76,5 @@ static const int kNumDoubleRegisters = kNumFloatRegisters;
   #define VECTOR_OP_LOOP \
      int i = local_idx; i < kVectorWidth; i += kOpsPerThread
 #endif 
-
+*/ 
 #endif // GUPPY_CONFIG_H      
