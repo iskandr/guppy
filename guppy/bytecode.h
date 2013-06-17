@@ -4,6 +4,17 @@
 #include <stdint.h>
 #include <string>
 
+#include "config.h"
+
+/*
+#define DEF_EVAL \
+  __device__ inline void eval(\
+    int local_idx,\
+    float** arrays, const size_t* lengths, \
+    float** vectors, \
+    int32_t* int_scalars,int64_t* long_scalars,\
+    float* float_scalars, double* double_scalars)
+*/ 
 
 // global idx, by convention is stored in first integer register
 
@@ -14,19 +25,19 @@ enum Arrays { a0, a1, a2, a3 };
 
 struct Instruction {
 /* every instruction must have a unique code and a size in number of bytes */
-	const uint16_t code;
+	const uint16_t tag;
   	const uint16_t size ; 
-  	Instruction(uint16_t code, uint16_t size) : code(code), size(size) {}
+  	Instruction(uint16_t code, uint16_t size) : tag(code), size(size) {}
 };
 
 /* Beware of curiously recurring template pattern!*/
 template <class SubType>
 struct InstructionT : Instruction {
-	InstructionT() : Instruction(SubType::op_code,  sizeof(SubType)) {}
+	InstructionT() : Instruction(SubType::code,  sizeof(SubType)) {}
 };
 
 struct LoadVector : public InstructionT<LoadVector> {
-	static const int op_code = 0;
+	static const int code = 0;
 
 	/* load elements from a global array into a local vector */
 	const uint16_t source_array;
@@ -43,7 +54,7 @@ struct LoadVector : public InstructionT<LoadVector> {
 
 
 struct LoadVector2 : public InstructionT<LoadVector2> {
-	static const int op_code = 1;
+	static const int code = 1;
 
 	/* load elements from a global array into a local vector */
 	const uint16_t source_array1;
@@ -67,7 +78,7 @@ struct LoadVector2 : public InstructionT<LoadVector2> {
 };
 
 struct StoreVector : public InstructionT<StoreVector> {
-	static const int op_code = 2;
+	static const int code = 2;
 
     /* store elements of a vector into a global array
 	 * starting from target_array[start_idx] until
@@ -87,7 +98,7 @@ struct StoreVector : public InstructionT<StoreVector> {
 
 
 struct Add : public InstructionT<Add> {
-	static const int op_code = 3;
+	static const int code = 3;
 
 	/* for now this will only work as a scalar operation,
 	 * expecting scalar float registers as arguments x,y,target
@@ -96,56 +107,59 @@ struct Add : public InstructionT<Add> {
 	const uint16_t arg1;
 	const uint16_t arg2;
 
-	Add(int result, int arg1, int arg2) : result(result), arg1(arg1), arg2(arg2) {}
+	Add(int result, int arg1, int arg2) : 
+          result(result), arg1(arg1), arg2(arg2) {}
+
 };
 
 
 struct IAdd : public InstructionT<IAdd> { 
-  static const int op_code = 4;
+  static const int code = 4;
   /* in-place variant of add: x = x + y */ 
   const uint16_t arg;
   const uint16_t result;
 
   IAdd(int result, int arg) : result(result), arg(arg) {}
+
 };
 
 struct Sub : public InstructionT<Sub> { 
-  static const int op_code = 4; 
+  static const int code = 4; 
 };
 
 
 struct ISub : public InstructionT<ISub> { 
-  static const int op_code = 5; 
+  static const int code = 5; 
 };
 
 
 struct Mul : public InstructionT<Mul> { 
-  static const int op_code = 6; 
+  static const int code = 6; 
 };
 
 
 struct IMul : public InstructionT<IMul> { 
-  static const int op_code = 7; 
+  static const int code = 7; 
 };
 
 struct Div : public InstructionT<Div> { 
-  static const int op_code = 8; 
+  static const int code = 8; 
 };
 
 struct IDiv : public InstructionT<IDiv> { 
-  static const int op_code = 9; 
+  static const int code = 9; 
 };
 
 struct MultiplyAdd : public InstructionT<MultiplyAdd> { 
-  static const int op_code = 10;
+  static const int code = 10;
 };
 
 struct IMultiplyAdd : public InstructionT<IMultiplyAdd> { 
-  static const int op_code = 11;
+  static const int code = 11;
 };
 
 struct Map : public InstructionT<Map> {
-  static const int op_code = 12;
+  static const int code = 12;
 
   /* map over elements of source vector 
    * (which are loaded into scalar register input_elt)
@@ -170,7 +184,7 @@ struct Map : public InstructionT<Map> {
 
 
 struct Map2 : public InstructionT<Map2> {
-  static const int op_code = 13;
+  static const int code = 13;
 
   /* map over elements of two source vectors 
    * (which are loaded into scalar register input_elt) 

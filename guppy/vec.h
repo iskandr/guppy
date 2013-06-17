@@ -32,7 +32,14 @@ struct Vec {
       _host_data[i] = fill_value;
     }
   }
-
+  
+  size_t size() const {
+    return _n; 
+  }
+  
+  size_t nbytes() const {
+    return _nbytes; 
+  }
   float* get_gpu_data() {
     if (_gpu_dirty) {
       this->copy_to_gpu();
