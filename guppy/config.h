@@ -25,7 +25,7 @@ static const int kNumDoubleRegisters = kNumFloatRegisters;
 
 
 #ifndef PREFETCH_GPU_BYTECODE 
-  #define PREFETCH_GPU_BYTECODE 1
+  #define PREFETCH_GPU_BYTECODE 0
 #endif 
 
 #if PREFETCH_GPU_BYTECODE

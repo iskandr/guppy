@@ -36,25 +36,25 @@ int main(int argc, const char** argv) {
              cudaMemcpyHostToDevice); 
 
   //one version that uses efficient instructions
-  Program h_program1;
-  h_program1.add(LoadVector2(a0,v0,a1,v1,BlockEltStart,VecWidth));
-  h_program1.add(IAdd(v1,v0));
-  h_program1.add(StoreVector(a2, v1, BlockEltStart,VecWidth));
+  Program add1;
+  add1.add(LoadVector2(a0,v0,a1,v1,BlockEltStart,VecWidth));
+  add1.add(IAdd(v1,v0));
+  add1.add(StoreVector(a2, v1, BlockEltStart,VecWidth));
 
   //perform vector operation indirectly via Map 
-  Program h_program2; 
+  Program add2; 
   // par {
   //   v0 = a0[BlockEltStart:BlockEltStart+VecWidth] 
   //   v1 = a1[BlockEltStart:BlockEltStart+VecWidth] 
   // } 
-  h_program2.add(LoadVector2(a0,v0,a1,v1,BlockEltStart,VecWidth));
+  add2.add(LoadVector2(a0,v0,a1,v1,BlockEltStart,VecWidth));
   // map2 from (f0 <- v0; f1 <- v1) to (f2 -> v1) {
   //   f2 = f0 + f1
   // }
-  h_program2.add(Map2(v0,v1,v1,f0,f1,f1,1));
-  h_program2.add(IAdd(f1,f0));
+  add2.add(Map2(v0,v1,v1,f0,f1,f1,1));
+  add2.add(IAdd(f1,f0));
   // a[BlockEltStart:BlockEltStart+VecWidth] = v1
-  h_program2.add(StoreVector(a2, v1, BlockEltStart, VecWidth)); 
+  add2.add(StoreVector(a2, v1, BlockEltStart, VecWidth)); 
 
   int total_blocks = divup(N, kVectorWidth);
   dim3 blocks;
@@ -70,8 +70,8 @@ int main(int argc, const char** argv) {
   fprintf(stderr, "%d %d %d; %d %d %d\n", blocks.x, blocks.y, blocks.z, threads.x, threads.y,
           threads.z);
   double st = Now();
-  run<<<blocks, threads>>>(h_program2.to_gpu(),
-  		           h_program2.size(),
+  run<<<blocks, threads>>>(add1.to_gpu(),
+  		           add1.size(),
     		           d_arrays,
                            d_lengths);
   cudaDeviceSynchronize();

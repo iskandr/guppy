@@ -7,15 +7,19 @@
 #include "bytecode.h"
 
 
+#define EVAL_ARGS \
+  int local_idx, \
+  float** arrays,\
+  const size_t* array_lengths, \
+  float** vectors, \
+  int32_t* int_scalars, \
+  float* float_scalars
 
-__device__ inline void run_local_instruction(
-    Instruction* instr, 
-    int local_idx, 
-    float** arrays,
-    float** vectors, 
-    int32_t* int_scalars, 
-    float* float_scalars,  
-    const float* constants) {
+#define EVAL_ARG_ACTUALS \
+  local_idx, arrays, array_lengths, \
+  (float**) vectors, int_scalars, float_scalars  
+
+__device__ inline void run_local_instruction(Instruction* instr, EVAL_ARGS) { 
   switch(instr->tag) {
     case Add::code: {
       Add* op = (Add*) instr; 
@@ -27,8 +31,17 @@ __device__ inline void run_local_instruction(
   }  
 }
                                
-__device__ inline void run_subprogram() {}
+__device__ inline size_t run_subprogram(char* program, int pc, int n_ops, EVAL_ARGS) {
+  for (int i = 0; i < n_ops; ++i) { 
+    Instruction* instr = (Instruction*) &program[pc]; 
+    pc += instr->size;  
+    run_local_instruction(instr, EVAL_ARG_ACTUALS);     
+  }
+  return pc; 
 
+}
+
+/*
 #define CALL_EVAL(t) \
   ((t*)instr)->eval(local_idx, \
            arrays,\
@@ -38,6 +51,7 @@ __device__ inline void run_subprogram() {}
            long_scalars, \
            float_scalars, \
            double_scalars)
+*/ 
 
 __global__ void run(char* program,
                     long program_nbytes,
@@ -67,25 +81,11 @@ __global__ void run(char* program,
   int_scalars[VecWidth] = kVectorWidth;
   int_scalars[BlockEltStart] = block_offset * kVectorWidth; 
 
-  #if PREFETCH_GPU_BYTECODE 
-    /* preload program so that we don't make 
-       repeated global memory requests 
-    */  
-    __shared__ char  cached_program[kMaxProgramLength];
-    for (int i = local_idx; i < program_nbytes; i+=kThreadsPerBlock) {
-      cached_program[i] = program[i];      
-    }  
-  #endif 
-
   int pc = 0;
   Instruction* instr;
   while (pc < program_nbytes) {
     
-    #if PREFETCH_GPU_BYTECODE 
-      instr = (Instruction*) &cached_program[pc];
-    #else
-      instr = (Instruction*) &program[pc]; 
-    #endif 
+    instr = (Instruction*) &program[pc]; 
     pc += instr->size;
 
     switch (instr->tag) {
@@ -183,10 +183,11 @@ __global__ void run(char* program,
       float* dst = vectors[op->target_vector];   
       float* in_reg = &float_scalars[op->input_elt_reg]; 
       float* out_reg = &float_scalars[op->output_elt_reg]; 
-
+      size_t old_pc = pc; 
       for (int i = local_idx * kOpsPerThread; i < (local_idx+1)*kOpsPerThread; ++i) {
         in_reg[0] = src[i];   
-        run_subprogram();   
+        pc = run_subprogram(program, old_pc, op->n_ops, EVAL_ARG_ACTUALS); 
+        dst[i] = out_reg[0];  
       } 
       break;
     }
@@ -199,13 +200,13 @@ __global__ void run(char* program,
       float* in_reg1 = &float_scalars[op->input_elt_reg1];
       float* in_reg2 = &float_scalars[op->input_elt_reg2];  
       float* out_reg = &float_scalars[op->output_elt_reg]; 
-      
+      size_t old_pc = pc;  
 
       for (int i = local_idx * kOpsPerThread; i < (local_idx+1)*kOpsPerThread; ++i) {
         in_reg1[0] = src1[i];   
         in_reg2[0] = src2[i]; 
-
-        run_subprogram();   
+        pc = run_subprogram(program, old_pc, op->n_ops, EVAL_ARG_ACTUALS); 
+        dst[i] = out_reg[0];  
       } 
       break;
     } 
