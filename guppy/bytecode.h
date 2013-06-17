@@ -201,7 +201,8 @@ struct Map2 : public InstructionT<Map2> {
   const uint64_t output_elt_reg  :16;
   const uint64_t n_ops           :16; 
 
-  Map2(int source_vector1, int source_vector2, 
+  Map2(int source_vector1, 
+       int source_vector2, 
        int target_vector, 
        int input_elt_reg1, 
        int input_elt_reg2, 

@@ -90,19 +90,24 @@ __global__ void run(char* program,
 
     switch (instr->tag) {
     case LoadVector::code: {
-      LoadVector* load_slice = (LoadVector*) instr;
-      float* reg = vectors[load_slice->target_vector]; 
-      const float* src = arrays[load_slice->source_array];
-      const int start = int_scalars[load_slice->start_idx];
-      int nelts = int_scalars[load_slice->nelts];
+      LoadVector* op = (LoadVector*) instr;
+      const int source = op->source_array; 
+      float* reg = vectors[op->target_vector]; 
+      const float* src = arrays[source];
+      const int start = int_scalars[op->start_idx];
       #if VECTOR_LOAD_CHECK_BOUNDS
-        nelts = nelts <= kVectorWidth ? nelts : kVectorWidth; 
+        const int len = array_lengths[source];
+        const int nelts = start+kVectorWidth <= len ? kVectorWidth : kVectorWidth ? nelts : kVectorWidth; 
+        int stop_i = (local_idx+1)*kOpsPerThread; 
+        stop_i + start_i  
+        for (int i = local_idx 
+      #else 
+        #pragma unroll 5 
+        for ( int i = local_idx * kOpsPerThread; i < (local_idx+1) * kOpsPerThread; ++i)  
       #endif
-       
-      #pragma unroll 5 
-      for ( int i = local_idx * kOpsPerThread; i < (local_idx+1) * kOpsPerThread; ++i) { 
+        { 
           reg[i] = src[start+i];
-      }
+        }
        
       break;
     }
@@ -201,13 +206,14 @@ __global__ void run(char* program,
       float* in_reg2 = &float_scalars[op->input_elt_reg2];  
       float* out_reg = &float_scalars[op->output_elt_reg]; 
       size_t old_pc = pc;  
-
+      
       for (int i = local_idx * kOpsPerThread; i < (local_idx+1)*kOpsPerThread; ++i) {
-        in_reg1[0] = src1[i];   
-        in_reg2[0] = src2[i]; 
-        pc = run_subprogram(program, old_pc, op->n_ops, EVAL_ARG_ACTUALS); 
-        dst[i] = out_reg[0];  
+        *in_reg1 = src1[i];   
+        //*in_reg2 = src2[i]; 
+        // pc = run_subprogram(program, old_pc, op->n_ops, EVAL_ARG_ACTUALS); 
+        dst[i] = *out_reg;  
       } 
+      
       break;
     } 
     } // switch

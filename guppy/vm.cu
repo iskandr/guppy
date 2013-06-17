@@ -9,6 +9,7 @@
 #include "vm.h" 
 
 int main(int argc, const char** argv) {
+  
   int N = 10000 * kVectorWidth;
 
   Vec a(N, 1.0);
@@ -51,7 +52,7 @@ int main(int argc, const char** argv) {
   // map2 from (f0 <- v0; f1 <- v1) to (f2 -> v1) {
   //   f2 = f0 + f1
   // }
-  add2.add(Map2(v0,v1,v1,f0,f1,f1,1));
+  add2.add(Map2(v0,v1,v2,f0,f1,f2,1));
   add2.add(IAdd(f1,f0));
   // a[BlockEltStart:BlockEltStart+VecWidth] = v1
   add2.add(StoreVector(a2, v1, BlockEltStart, VecWidth)); 
@@ -70,8 +71,8 @@ int main(int argc, const char** argv) {
   fprintf(stderr, "%d %d %d; %d %d %d\n", blocks.x, blocks.y, blocks.z, threads.x, threads.y,
           threads.z);
   double st = Now();
-  run<<<blocks, threads>>>(add1.to_gpu(),
-  		           add1.size(),
+  run<<<blocks, threads>>>(add2.to_gpu(),
+  		           add2.size(),
     		           d_arrays,
                            d_lengths);
   cudaDeviceSynchronize();
