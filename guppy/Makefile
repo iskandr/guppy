@@ -1,38 +1,81 @@
-BIN               := vm 
-CXX               := gcc-4.6
-CXXFLAGS          := -O3 -g
+ifndef REALBUILD
+
+export REALBUILD := 1
+export DBG
+
+ifdef DBG
+all:
+	mkdir -p build/dbg
+	cd build/dbg && $(MAKE) -f ../../Makefile
+	ln -sf build/dbg bin
+else
+all: 
+	mkdir -p build/opt
+	cd build/opt &&  $(MAKE) -f ../../Makefile
+	ln -sf build/opt bin
+endif
+
+clean:
+	rm -rf build/
+else
+
+SRCDIR := ../../
+VPATH := $(SRCDIR)
+
+SWIG := swig
+CXX := g++
+CUDA_SDK?=5
+
+INCLUDES =  -I"$(SRCDIR)" 
+LIBS =  -lrt -lstdc++ -lpthread -lcuda -lcudart -lcublas -lcufft
+
+ARCH := -arch=sm_20
+PTXASFLAGS := $(ARCH) -v
+
+NVCCFLAGS := $(ARCH) $(INCLUDES) --ptxas-options='-v' -ccbin=gcc-4.4 -Xcompiler '-fPIC'
+CXXFLAGS := -fPIC $(INCLUDES)
+
+ifdef DBG
+CXXFLAGS := $(CXXFLAGS) -O0 -ggdb2
+NVCCFLAGS := $(NVCCFLAGS) -O1 -G
+else
+CXXFLAGS := $(CXXFLAGS) -O3
+NVCCFLAGS := $(NVCCFLAGS) -O3
+endif
+
+all : _vm_wrap.so vm_kernel.cubin test_main
 
 NVCC ?= nvcc
 PTXAS ?= ptxas
 
-INCD =  -I"./"
-LIBS =  -lrt -lstdc++ -lpthread -lcuda -lcudart -lcublas -lcufft
-CUDA_SDK?=5
+SWIG_SOURCES := vm_wrap.i
+CU_SOURCES := vm_kernel.cu util.cu bytecode.cu
+ 
+HEADERS := $(wildcard $(SRCDIR)/*.h)
 
-ARCH := -arch=sm_13
-NVCCFLAGS := $(ARCH) --ptxas-options='-v' -O3 -g  -ccbin=gcc-4.4#--compiler-bindir=./nvcc-bindir
-PTXASFLAGS := $(ARCH) -v
+CPP_OBJS := $(patsubst %.cpp, %.o, $(CPP_SOURCES))
+CU_OBJS := $(patsubst %.cu, %.o, $(CU_SOURCES))
+SWIG_OBJS := $(patsubst %.i, _%.o, $(SWIG_SOURCES))
 
-# files
-CPP_SOURCES       :=  
-CU_SOURCES        := vm.cu
-HEADERS           := $(wildcard *.h)
-CPP_OBJS          := $(patsubst %.cpp, %.o, $(CPP_SOURCES))
-CU_OBJS           := $(patsubst %.cu, %.o, $(CU_SOURCES))
+_%.o : %.i
+	$(SWIG) -O -python -c++ -o _vm_wrap.cpp $<
+	$(CXX) $(CXXFLAGS) -I/usr/include/python2.7 -c _vm_wrap.cpp -o _vm_wrap.o
 
-all: $(BIN) vm.ptx 
-
+_vm_wrap.so: $(SWIG_OBJS) $(CPP_OBJS) $(CU_OBJS)
+	$(NVCC) -shared -I/usr/include/python2.7 $^ -o _vm_wrap.so
+	
 %.ptx : %.cu
-	$(NVCC) $(NVCCFLAGS) $(INCD) -ptx -o $@ $<
+	$(NVCC) $(NVCCFLAGS) -ptx -o $@ $<
 
 %.o : %.cu $(HEADERS)
-	$(NVCC) $(NVCCFLAGS) $(INCD) -c -o $@ $<
+	$(NVCC) $(NVCCFLAGS) -c -o $@ $<
 
 %.o: %.cpp
-	$(CXX) -c $(CXXFLAGS) $(INCD) -o $@ $<
+	$(CXX) -c $(CXXFLAGS) -o $@ $<
 
-$(BIN): $(CPP_OBJS) $(CU_OBJS)
-	$(NVCC) -link -o $(BIN) $(CU_OBJS) $(CPP_OBJS) $(LIBS) 
-
-clean:
-	rm -f $(BIN) *.o *.ptx
+vm_kernel.cubin: vm_kernel.cu
+	$(NVCC) $(NVCCFLAGS) -cubin -o $@ $^
+	
+test_main: $(CPP_OBJS) $(CU_OBJS) test_main.o
+	$(NVCC) $(NVCCFLAGS) -link -o $@ $^ $(LIBS)
+endif

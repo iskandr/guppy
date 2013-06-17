@@ -6,10 +6,10 @@
 #include "config.h"
 #include "vec.h"
 #include "util.h"
-#include "vm.h" 
+#include "bytecode.h"
+#include "vm_kernel.cuh"
 
 int main(int argc, const char** argv) {
-  
   int N = 10000 * kVectorWidth;
 
   Vec a(N, 1.0);
@@ -24,38 +24,36 @@ int main(int argc, const char** argv) {
   size_t h_lengths[n_arrays];
   h_lengths[0] = a.size();
   h_lengths[1] = b.size();
-  h_lengths[2] = c.size(); 
-  
+  h_lengths[2] = c.size();
+
   float** d_arrays;
   cudaMalloc(&d_arrays, sizeof(float*) * n_arrays);
-  cudaMemcpy(d_arrays, h_arrays, sizeof(float*) * n_arrays, 
-             cudaMemcpyHostToDevice);
-  
+  cudaMemcpy(d_arrays, h_arrays, sizeof(float*) * n_arrays, cudaMemcpyHostToDevice);
+
   size_t* d_lengths;
-  cudaMalloc(&d_lengths, sizeof(size_t) * n_arrays); 
-  cudaMemcpy(d_lengths, &h_lengths, sizeof(size_t)*n_arrays, 
-             cudaMemcpyHostToDevice); 
+  cudaMalloc(&d_lengths, sizeof(size_t) * n_arrays);
+  cudaMemcpy(d_lengths, &h_lengths, sizeof(size_t) * n_arrays, cudaMemcpyHostToDevice);
 
   //one version that uses efficient instructions
   Program add1;
-  add1.add(LoadVector2(a0,v0,a1,v1,BlockEltStart,VecWidth));
-  add1.add(IAdd(v1,v0));
-  add1.add(StoreVector(a2, v1, BlockEltStart,VecWidth));
+  add1.add(LoadVector2(a0, v0, a1, v1, BlockEltStart, VecWidth));
+  add1.add(IAdd(v1, v0));
+  add1.add(StoreVector(a2, v1, BlockEltStart, VecWidth));
 
   //perform vector operation indirectly via Map 
-  Program add2; 
+  Program add2;
   // par {
   //   v0 = a0[BlockEltStart:BlockEltStart+VecWidth] 
   //   v1 = a1[BlockEltStart:BlockEltStart+VecWidth] 
   // } 
-  add2.add(LoadVector2(a0,v0,a1,v1,BlockEltStart,VecWidth));
+  add2.add(LoadVector2(a0, v0, a1, v1, BlockEltStart, VecWidth));
   // map2 from (f0 <- v0; f1 <- v1) to (f2 -> v1) {
   //   f2 = f0 + f1
   // }
-  add2.add(Map2(v0,v1,v2,f0,f1,f2,1));
-  add2.add(IAdd(f1,f0));
+  add2.add(Map2(v0, v1, v2, f0, f1, f2, 1));
+  add2.add(IAdd(f1, f0));
   // a[BlockEltStart:BlockEltStart+VecWidth] = v1
-  add2.add(StoreVector(a2, v1, BlockEltStart, VecWidth)); 
+  add2.add(StoreVector(a2, v1, BlockEltStart, VecWidth));
 
   int total_blocks = divup(N, kVectorWidth);
   dim3 blocks;
@@ -71,10 +69,10 @@ int main(int argc, const char** argv) {
   fprintf(stderr, "%d %d %d; %d %d %d\n", blocks.x, blocks.y, blocks.z, threads.x, threads.y,
           threads.z);
   double st = Now();
-  run<<<blocks, threads>>>(add2.to_gpu(),
-  		           add2.size(),
-    		           d_arrays,
-                           d_lengths);
+  vm_kernel<<<blocks, threads>>>((char*)add2.to_gpu(),
+      add2.size(),
+      d_arrays,
+      d_lengths);
   cudaDeviceSynchronize();
   CHECK_CUDA();
   double ed = Now();

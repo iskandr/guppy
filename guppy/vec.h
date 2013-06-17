@@ -4,7 +4,6 @@
 #include <cuda.h>
 #include <cuda_runtime.h>
 
-
 struct Vec {
   int _n;
   int _nbytes;
@@ -32,13 +31,13 @@ struct Vec {
       _host_data[i] = fill_value;
     }
   }
-  
+
   size_t size() const {
-    return _n; 
+    return _n;
   }
-  
+
   size_t nbytes() const {
-    return _nbytes; 
+    return _nbytes;
   }
   float* get_gpu_data() {
     if (_gpu_dirty) {
