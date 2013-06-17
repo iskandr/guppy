@@ -11,6 +11,7 @@ try:
   import vm_wrap as VM
   from vm_wrap import a0, a1, a2, a3
   from vm_wrap import f0, f1, f2, f3
+  from vm_wrap import BlockEltStart, VecWidth
   from vm_wrap import v0, v1, v2, v3
 except:
   raise
@@ -21,9 +22,9 @@ def divup(a, b):
 def load_vm_module(debug=False):
   import os
   if debug:
-    os.system('make -j DBG=1')
+    os.system('make --silent -j DBG=1')
   else:
-    os.system('make -j')
+    os.system('make --silent -j')
 
   cubin = os.path.abspath('./bin/vm_kernel.cubin')
   assert os.path.exists(cubin), cubin
@@ -65,11 +66,17 @@ def run(program, args, debug=False):
             N.int64(program.size()),
             ptrs, lens, grid=grid, block=block)
 
+  
+  """
+    v0, v1 <- load2(a0,a1) 
+    v1 += v0
+    a2 <- v1
+  """ 
+ 
 p = program([
-             VM.LoadVector2(a0, v0, a1, v1, VM.BlockEltStart, VM.VecWidth),
-             VM.Map2(v0, v1, v2, f0, f1, f2, 1),
-             VM.IAdd(f1, f0),
-             VM.StoreVector(a2, v1, VM.BlockEltStart, VM.VecWidth)])
+             VM.LoadVector2(a0, v0, a1, v1, BlockEltStart, VecWidth),
+             VM.IAdd(v1, v0),
+             VM.StoreVector(a2, v1, BlockEltStart, VecWidth)])
 
 a = gpuarray.zeros((100000,), dtype=N.float32)
 b = gpuarray.zeros((100000,), dtype=N.float32)
@@ -78,4 +85,6 @@ a += 1
 b += 2
 
 c = gpuarray.zeros((100000,), dtype=N.float32)
-run(p, [a, b, c], debug=True)
+run(p, [a, b, c], debug=False)
+
+print c

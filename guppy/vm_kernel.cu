@@ -156,7 +156,7 @@ case LoadVector2::code: {
         const float* a = vectors[op->arg];
         float* b = vectors[op->result];
 
-#pragma unroll 5
+        #pragma unroll 5
         for (int i = local_idx * kOpsPerThread; i < (local_idx+1)*kOpsPerThread; ++i) {
           b[i] += a[i];
         }
@@ -190,7 +190,7 @@ case LoadVector2::code: {
 
         for (int i = local_idx * kOpsPerThread; i < (local_idx+1)*kOpsPerThread; ++i) {
           *in_reg1 = src1[i];
-          *in_reg2 = src2[i];
+          //*in_reg2 = src2[i];
           // pc = run_subprogram(program, old_pc, op->n_ops, EVAL_ARG_ACTUALS);
           dst[i] = *out_reg;
         }

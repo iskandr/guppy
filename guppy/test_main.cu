@@ -69,8 +69,8 @@ int main(int argc, const char** argv) {
   fprintf(stderr, "%d %d %d; %d %d %d\n", blocks.x, blocks.y, blocks.z, threads.x, threads.y,
           threads.z);
   double st = Now();
-  vm_kernel<<<blocks, threads>>>((char*)add2.to_gpu(),
-      add2.size(),
+  vm_kernel<<<blocks, threads>>>((char*)add1.to_gpu(),
+      add1.size(),
       d_arrays,
       d_lengths);
   cudaDeviceSynchronize();
