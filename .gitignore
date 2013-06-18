@@ -5,6 +5,8 @@ build/
 include/
 lib/
 local/
+guppy/bin/
+guppy/build/
 sparrow_wrap.cpp
 _core.py
 perf.data

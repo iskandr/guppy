@@ -17,6 +17,7 @@ endif
 
 clean:
 	rm -rf build/
+	rm -f bin
 else
 
 SRCDIR := ../../
