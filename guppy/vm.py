@@ -68,6 +68,9 @@ class Enums(CodeGen):
     return ''
 
 class Constants(CodeGen):
+  def __init__(self, **kw):
+    CodeGen.__init__(self, kw)
+    
   def _emit(self):
     return '''
 static const int kThreadsX = 8; // 16;
