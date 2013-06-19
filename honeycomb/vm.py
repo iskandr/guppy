@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-from guppy import bytecode
+from honeycomb import bytecode
 from pycuda import autoinit, gpuarray, driver, compiler
 import os.path
 import time

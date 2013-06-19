@@ -8,13 +8,13 @@ import os
 from setuptools import setup, Extension
 
 setup(
-  name='guppy',
-  version='1.0',
+  name='honeycomb',
+  version='0.0.1',
   maintainer='Russell Power',
   maintainer_email='russell.power@gmail.com',
-  url='http://github.com/rjpower/guppy',
+  url='https://github.com/iskandr/honeycomb', 
   install_requires=['pycuda'],
   description='...',
   package_dir={'': '.'},
-  packages=['guppy'],
+  packages=['honeycomb'],
 )
