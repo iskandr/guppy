@@ -20,6 +20,7 @@ p1 = program([
               core.StoreVector(a2, v2, i0)
              ])
 
+
 # todo -- push these through vm compile
 threads_x = 8
 threads_y = 8
