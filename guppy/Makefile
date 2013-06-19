@@ -27,7 +27,7 @@ SWIG := swig
 CXX := g++
 CUDA_SDK?=5
 
-INCLUDES =  -I"$(SRCDIR)" 
+INCLUDES =  -I"$(SRCDIR)" -I/usr/include/python2.7
 LIBS =  -lrt -lstdc++ -lpthread -lcuda -lcudart -lcublas -lcufft
 
 ARCH := -arch=sm_20
@@ -44,13 +44,13 @@ CXXFLAGS := $(CXXFLAGS) -O3
 NVCCFLAGS := $(NVCCFLAGS) -O3
 endif
 
-all : vm_kernel.cubin test_main _vm_wrap.so
+all : core.py _core.so
 
 NVCC ?= nvcc
 PTXAS ?= ptxas
 
-SWIG_SOURCES := vm_wrap.i
-CU_SOURCES := vm_kernel.cu util.cu bytecode.cu
+SWIG_SOURCES := core.i
+CU_SOURCES := 
  
 HEADERS := $(wildcard $(SRCDIR)/*.h)
 
@@ -60,12 +60,11 @@ SWIG_OBJS := $(patsubst %.i, _%.o, $(SWIG_SOURCES))
 
 .PRECIOUS: %.ptx
 
-_%.o : %.i
-	$(SWIG) -O -python -c++ -o _vm_wrap.cu $<
-	$(NVCC) $(NVCCFLAGS) -I/usr/include/python2.7 -c _vm_wrap.cu -o _vm_wrap.o
+_%.cpp %.py : %.i
+	$(SWIG) -O  -python -c++ -outdir . -o $(patsubst %.i, _%.cpp, $(notdir $<)) $<
 
-_vm_wrap.so: $(SWIG_OBJS) $(CPP_OBJS) $(CU_OBJS)
-	$(NVCC) $(NVCCFLAGS) -shared -I/usr/include/python2.7 $^ -o _vm_wrap.so
+_core.so: $(SWIG_OBJS) $(CPP_OBJS) $(CU_OBJS)
+	$(CXX) -shared  $^ -o _core.so
 	
 %.ptx : %.cu
 	$(NVCC) $(NVCCFLAGS) -ptx -o $@ $<
@@ -76,9 +75,5 @@ _vm_wrap.so: $(SWIG_OBJS) $(CPP_OBJS) $(CU_OBJS)
 %.o: %.cpp
 	$(CXX) -c $(CXXFLAGS) -o $@ $<
 
-vm_kernel.cubin: vm_kernel.cu
-	$(NVCC) $(NVCCFLAGS) -cubin -o $@ $^
-	
-test_main: $(CPP_OBJS) $(CU_OBJS) test_main.o
-	$(NVCC) $(NVCCFLAGS) -link -o $@ $^ $(LIBS)
+
 endif

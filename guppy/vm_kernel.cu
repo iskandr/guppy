@@ -26,30 +26,6 @@ __device__   inline size_t run_subprogram(const char* __restrict__ program, int 
 }
 
 extern "C" {
-__global__ void vm_kernel(const char* __restrict__ program,
-                          long program_nbytes,
-                          float** arrays,
-                          const size_t* array_lengths) {
-  const int block_offset = blockIdx.y * gridDim.x + blockIdx.x;
-  const int local_idx = threadIdx.y * blockDim.x + threadIdx.x;
-  const int local_vector_offset = local_idx * kOpsPerThread;
-
-  __shared__ float vectors[kNumVecRegisters][kVectorWidth + kVectorPadding];
-  #if SCALAR_REGISTERS_SHARED
-    __shared__ int32_t int_scalars[kNumIntRegisters];
-    __shared__ int64_t long_scalars[kNumIntRegisters];
-    __shared__ float float_scalars[kNumFloatRegisters];
-    __shared__ double double_scalars[kNumFloatRegisters];
-  #else
-    int32_t int_scalars[kNumIntRegisters];
-    int64_t long_scalars[kNumLongRegisters];
-    float float_scalars[kNumFloatRegisters];
-    double double_scalars[kNumFloatRegisters];
-  #endif
-
-  int_scalars[BlockStart] = block_offset;
-  int_scalars[VecWidth] = kVectorWidth;
-  int_scalars[BlockEltStart] = block_offset * kVectorWidth;
 
   int pc = 0;
   const Instruction* instr;

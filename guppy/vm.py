@@ -1,120 +1,198 @@
 #!/usr/bin/env python
 
-from math import ceil, sqrt
+from guppy import bytecode
 from pycuda import autoinit, gpuarray, driver, compiler
-import numpy as np 
-import os
-import time 
+import time
+
+class CodeGen(object):
+  def __init__(self, **kw):
+    self.kw = kw
+
+  def _format(self, fmt):
+    from mako.template import Template
+    tmpl = Template(fmt)
+    kw = dict(self.kw)
+    kw['this'] = self
+    return tmpl.render(**kw)
+
+  def emit(self):
+    raw = self._emit()
+    if not isinstance(raw, str):
+      raw = '\n'.join([str(r) for r in raw])
+
+    return self._format(raw)
+
+class OpGen(CodeGen):
+  pass
+
+class LoadVector2(OpGen):
+  def _emit(self):
+    return '''
+    float* reg1 = vectors[op->target_vector1];
+    const float* src1 = arrays[op->source_array1];
+
+    float* reg2 = vectors[op->target_vector2];
+    const float* src2 = arrays[op->source_array2];
+    const int start = int_scalars[op->start_idx];
+
+#pragma unroll
+    for (int i = local_idx * kOpsPerThread; i < (local_idx + 1) * kOpsPerThread; ++i) {
+      reg1[i] = src1[start + i];
+      reg2[i] = src2[start + i];
+    }
+  '''
+
+class LoadVector(OpGen):
+  def _emit(self):
+    return '''
+    float* reg = vectors[op->target_vector];
+    const float* src = arrays[op->source_array];
+    const int start = int_scalars[op->start_idx];
+
+#pragma unroll
+    for (int i = local_idx; i < kVectorWidth; i += kOpsPerThread) {
+      reg[i] = src[start + i];
+    }
+  '''
+
+INSTRUCTIONS = [LoadVector, LoadVector2]
+
+class BytecodeHeader(CodeGen):
+  def _emit(self):
+    return open('bytecode.h').read()
+
+class Enums(CodeGen):
+  def _emit(self):
+    return '''
+    enum IntRegisters {
+  BlockStart,
+  VecWidth,
+  BlockEltStart,
+  i0,
+  i1,
+  i2,
+  i3
+};
+enum FloatRegisters {
+  f0,
+  f1,
+  f2,
+  f3
+};
+enum VecRegisters {
+  v0,
+  v1,
+  v2,
+  v3
+};
+enum Arrays {
+  a0,
+  a1,
+  a2,
+  a3
+};
+'''
+
+class Constants(CodeGen):
+  def _emit(self):
+    return '''
+static const int kThreadsX = 8; // 16;
+static const int kThreadsY = 8; // 16;
+
+// seems to give slightly better performance than kOpsPerThread = 8
+static const int kOpsPerThread = 5;
+static const int kThreadsPerBlock = kThreadsX * kThreadsY;
+static const int kVectorWidth = kThreadsPerBlock * kOpsPerThread;
+static const int kVectorPadding = 0;
+static const int kNumVecRegisters = 4;
+static const int kNumIntRegisters = 10;
+static const int kNumLongRegisters = kNumIntRegisters;
+static const int kNumFloatRegisters = 10;
+static const int kNumDoubleRegisters = kNumFloatRegisters;
+'''
+
+class Registers(CodeGen):
+  def __init__(self, scalar_registers_shared=True, **kw):
+    CodeGen.__init__(self, scalar_registers_shared=scalar_registers_shared, **kw)
+
+  def _emit(self):
+    if self.kw['scalar_registers_shared']:
+      return '''
+    __shared__ int32_t int_scalars[kNumIntRegisters];
+    __shared__ int64_t long_scalars[kNumIntRegisters];
+    __shared__ float float_scalars[kNumFloatRegisters];
+    __shared__ double double_scalars[kNumFloatRegisters];
+    '''
+    else:
+      return '''
+    int32_t int_scalars[kNumIntRegisters];
+    int64_t long_scalars[kNumLongRegisters];
+    float float_scalars[kNumFloatRegisters];
+    double double_scalars[kNumFloatRegisters];
+    '''
+
+class SwitchDispatch(CodeGen):
+  def _emit(self):
+    yield '''
+    while (pc < program_nbytes) {
+    const Instruction* _op = (const Instruction*) &program[pc];
+    pc += _op->size;
+    '''
+    yield 'switch (_op->tag) {'
+    for op_klass in INSTRUCTIONS:
+      klass_name = op_klass.__name__
+      bytecode_inst = getattr(bytecode, klass_name)
+      yield 'case %d: { ' % bytecode_inst.opcode
+      yield '%s* op = (%s*)_op;' % (klass_name, klass_name)
+      op = op_klass(**self.kw)
+      yield op.emit()
+      yield '}'
+      yield 'break;'
+    yield '}'
+    yield '}'
+
+class VM(CodeGen):
+  def __init__(self, **kw):
+    CodeGen.__init__(self, **kw)
+    self.enums = Enums(**kw)
+    self.constants = Constants(**kw)
+    self.registers = Registers(**kw)
+    self.dispatch = SwitchDispatch(**kw)
+    self.bytecode = BytecodeHeader(**kw)
+
+  def _emit(self):
+    return '''
+    ${this.bytecode.emit()}
+    ${this.enums.emit()}
+    ${this.constants.emit()}
+
+extern "C" __global__ void vm_kernel(
+     const char* __restrict__ program,
+     long program_nbytes,
+     float** arrays,
+     const size_t* array_lengths) {
+
+  const int block_offset = blockIdx.y * gridDim.x + blockIdx.x;
+  const int local_idx = threadIdx.y * blockDim.x + threadIdx.x;
+  const int local_vector_offset = local_idx * kOpsPerThread;
+
+  __shared__ float vectors[kNumVecRegisters][kVectorWidth + kVectorPadding];
+  int pc = 0;
+
+  ${this.registers.emit()}
+
+  int_scalars[BlockStart] = block_offset;
+  int_scalars[VecWidth] = kVectorWidth;
+  int_scalars[BlockEltStart] = block_offset * kVectorWidth;
+
+  ${this.dispatch.emit()}
+
+  }
+  '''
 
 
-try:
-  # assert os.system('make --silent -j') == 0
-  import sys
-  sys.path += ['./bin']
-
-  import vm_wrap as vm
-  from vm_wrap import a0, a1, a2, a3
-  from vm_wrap import f0, f1, f2, f3
-  from vm_wrap import BlockEltStart, VecWidth
-  from vm_wrap import v0, v1, v2, v3
-except:
-  raise
-
-def divup(a, b):
-  return int(ceil(float(a) / float(b)))
-
-def load_vm_module():
-  import os
-  #if debug:
-  #  ret = os.system('make --silent -j DBG=1')
-  #else:
-  #  ret = os.system('make --silent -j')
-  #assert ret == 0, "Make failed" 
-  cubin = os.path.abspath('./bin/vm_kernel.cubin')
-  assert os.path.exists(cubin), cubin
-  mod = driver.module_from_file(str(cubin))
-  return mod
-
-def load_vm_kernel(_cache = [None]):
-  if _cache[0] is None:
-    mod = load_vm_module()
-    fn = mod.get_function('vm_kernel')
-    _cache[0] = fn
-  return _cache[0]
-
-def build_descriptor(args):
-  for a in args: assert isinstance(a, gpuarray.GPUArray)
-  ptrs = np.ndarray(len(args), dtype=np.int64)
-  lens = np.ndarray(len(args), dtype=np.int64)
-  for i in range(len(args)):
-    ptrs[i] = int(args[i].gpudata)
-    lens[i] = np.prod(args[i].shape)
-  return ptrs, lens 
-
-def run(program, args):
-  ptrs, lens = build_descriptor(args)
-  vm_kernel = load_vm_kernel()
-
-  total_size = np.prod(args[0].shape)
-  total_blocks = divup(total_size, vm.kVectorWidth);
-  grid = (int(ceil(sqrt(total_blocks))), int(ceil(sqrt(total_blocks))), 1)
-
-  block = (vm.kThreadsX, vm.kThreadsY, 1)
-
-  p = program.code()
-  host_bytecodes = np.frombuffer(p, dtype=np.uint8)
-  gpu_bytecodes = driver.In(np.frombuffer(p, dtype=np.uint8))
-  vm_kernel(gpu_bytecodes,
-            np.int64(program.size()),
-            driver.In(ptrs), driver.In(lens), 
-            grid=grid, block=block)
-  autoinit.context.synchronize()
-
-class program(object):
-  def __init__(self, bytecodes):
-    self.p = vm.Program()
-    for b in bytecodes:
-      self.p.add(b)
-  
-  def __call__(self, *args, **kwargs): 
-    #debug = kwargs.get('debug', False)
-    load_vm_kernel()
-    start_t = time.time()
-    run(self.p, args)
-    end_t = time.time()
-    return end_t - start_t 
-  """
-    v0, v1 <- load2(a0,a1) 
-    v1 += v0
-    a2 <- v1
-  """ 
- 
-p = program([
-             vm.LoadVector2(a0, v0, a1, v1, BlockEltStart, VecWidth),
-             vm.IAdd(v1, v0),
-             vm.StoreVector(a2, v1, BlockEltStart, VecWidth)])
-
-p1 = program([
-              vm.LoadVector2(a0, v0, a1, v1, BlockEltStart, VecWidth), 
-              vm.Map2(v0,v1,v2,f0,f1,f2,1),
-              vm.IAdd(f1,f0), 
-              vm.StoreVector(a2,v2,BlockEltStart,VecWidth)
-             ])
-
-N = 10**4 * 320 
-a = gpuarray.zeros((N,), dtype=np.float32)
-b = gpuarray.zeros((N,), dtype=np.float32)
-
-a += 1
-b += 2
-
-c = gpuarray.zeros((N,), dtype=np.float32)
-
-elapsed_t = p(a, b, c)
-
-print "Array length:", N
-print "Result:", c
-print "Time elapsed:", elapsed_t
-print "Throughpout:", (N*4)/(elapsed_t*1024*1024*1024), "GFLOP/S"
-print "# Wrong: ", (c.get() != (a+b).get()).sum(), "/", N 
-
+if __name__ == '__main__':
+  vm = VM()
+  code = vm.emit()
+  print code
+  compiler.SourceModule(code, keep=True, no_extern_c=True)
