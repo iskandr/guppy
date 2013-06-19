@@ -1,3 +1,4 @@
-honeycomb: Data Parallel Bytecode for Simpler GPU Programming
+HoneyComb
 =========
 
+## Data Parallel Bytecode for Simpler GPU Programming
