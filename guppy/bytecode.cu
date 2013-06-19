@@ -15,3 +15,4 @@ void* Program::to_gpu() {
   return _gpu_ptr;
 }
 
+static LoadVector l(0,0,0,0); 

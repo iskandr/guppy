@@ -14,7 +14,7 @@
  */
 
 extern "C" {
-__global__ void vm_kernel(char* program,
+__global__ void vm_kernel(const char* __restrict__ program,
                           long program_nbytes,
                           float** arrays,
                           const size_t* array_lengths);

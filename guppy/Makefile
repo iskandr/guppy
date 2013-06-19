@@ -37,13 +37,13 @@ CXXFLAGS := -fPIC $(INCLUDES)
 
 ifdef DBG
 CXXFLAGS := $(CXXFLAGS) -O0 -ggdb2
-NVCCFLAGS := $(NVCCFLAGS) -O1 -G
+NVCCFLAGS := $(NVCCFLAGS) -O1 -G --generate-line-info 
 else
 CXXFLAGS := $(CXXFLAGS) -O3
 NVCCFLAGS := $(NVCCFLAGS) -O3
 endif
 
-all : _vm_wrap.so vm_kernel.cubin test_main
+all : vm_kernel.cubin test_main _vm_wrap.so
 
 NVCC ?= nvcc
 PTXAS ?= ptxas
@@ -57,17 +57,19 @@ CPP_OBJS := $(patsubst %.cpp, %.o, $(CPP_SOURCES))
 CU_OBJS := $(patsubst %.cu, %.o, $(CU_SOURCES))
 SWIG_OBJS := $(patsubst %.i, _%.o, $(SWIG_SOURCES))
 
+.PRECIOUS: %.ptx
+
 _%.o : %.i
-	$(SWIG) -O -python -c++ -o _vm_wrap.cpp $<
-	$(CXX) $(CXXFLAGS) -I/usr/include/python2.7 -c _vm_wrap.cpp -o _vm_wrap.o
+	$(SWIG) -O -python -c++ -o _vm_wrap.cu $<
+	$(NVCC) $(NVCCFLAGS) -I/usr/include/python2.7 -c _vm_wrap.cu -o _vm_wrap.o
 
 _vm_wrap.so: $(SWIG_OBJS) $(CPP_OBJS) $(CU_OBJS)
-	$(NVCC) -shared -I/usr/include/python2.7 $^ -o _vm_wrap.so
+	$(NVCC) $(NVCCFLAGS) -shared -I/usr/include/python2.7 $^ -o _vm_wrap.so
 	
 %.ptx : %.cu
 	$(NVCC) $(NVCCFLAGS) -ptx -o $@ $<
 
-%.o : %.cu $(HEADERS)
+%.o : %.cu %.ptx  $(HEADERS)
 	$(NVCC) $(NVCCFLAGS) -c -o $@ $<
 
 %.o: %.cpp

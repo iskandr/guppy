@@ -1,5 +1,5 @@
 %module vm_wrap
-
+#define __device__ 
 %{
 #include "bytecode.h"
 #include "util.h"
@@ -26,7 +26,7 @@ private:
 
 template <class T>
 class InstructionT : public Instruction {
-
+private:
 };
 
 %template() InstructionT< LoadVector >;
@@ -45,5 +45,8 @@ class InstructionT : public Instruction {
 %template() InstructionT< Map >;
 %template() InstructionT< Map2 >;
 
+%ignore eval_impl;
+
+%include "dispatch_table.h"
 %include "bytecode.h"
 %include "config.h"
