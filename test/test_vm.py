@@ -1,21 +1,23 @@
-from guppy import bytecode, vm, core
-from guppy.bytecode import program, divup
-from guppy.core import *
+from honeycomb import bytecode, vm, core
+from honeycomb.bytecode import program, divup
+from honeycomb.core import *
 from math import ceil, sqrt
 from pycuda import autoinit, driver, gpuarray
 import numpy as np
 import time
 
 p = program([
-             core.LoadVector2(a0, v0, a1, v1, BlockEltStart, VecWidth),
+             core.MulScalar(i0, Idx.x, VecSize),
+             core.LoadVector2(a0, v0, a1, v1, i0),
              core.IAdd(v1, v0),
-             core.StoreVector(a2, v1, BlockEltStart, VecWidth)])
+             core.StoreVector(a2, v1, i0)])
 
 p1 = program([
-              core.LoadVector2(a0, v0, a1, v1, BlockEltStart, VecWidth),
+              core.MulScalar(i0, Idx.x, VecSize),
+              core.LoadVector2(a0, v0, a1, v1, i0),
               core.Map2(v0, v1, v2, f0, f1, f2, 1),
               core.IAdd(f1, f0),
-              core.StoreVector(a2, v2, BlockEltStart, VecWidth)
+              core.StoreVector(a2, v2, i0)
              ])
 
 # todo -- push these through vm compile

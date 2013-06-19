@@ -5,6 +5,10 @@ from pycuda import autoinit, gpuarray, driver, compiler
 import os.path
 import time
 
+threads_x = 8
+threads_y = 8 
+ops_per_thread = 1
+
 class CodeGen(object):
   def __init__(self, **kw):
     self.kw = kw
@@ -26,22 +30,34 @@ class CodeGen(object):
 class OpGen(CodeGen):
   pass
 
+def repeat(code_snippet, n, contiguous = True):
+   strings = [""]
+   if contiguous:
+     start = "int i = local_idx*kOpsPerThread;"
+     incr = "++i;"
+   else:
+     start = "int i = local_idx;"
+     incr = "i += kThreadsPerBlock;"
+
+   strings.append(start)
+   for _ in xrange(n):
+     strings.append(code_snippet)
+     strings.append(incr)
+   return "\n".join(strings)
+
 class LoadVector2(OpGen):
   def _emit(self):
-    return '''
+    init =  '''
     float* reg1 = vectors[op->target_vector1];
     const float* src1 = arrays[op->source_array1];
 
     float* reg2 = vectors[op->target_vector2];
     const float* src2 = arrays[op->source_array2];
     const int start = int_scalars[op->start_idx];
-
-#pragma unroll
-    for (int i = local_idx * kOpsPerThread; i < (local_idx + 1) * kOpsPerThread; ++i) {
-      reg1[i] = src1[start + i];
-      reg2[i] = src2[start + i];
-    }
-  '''
+    ''' 
+    body = "reg1[i] = src1[start+i]; reg2[i] = src2[start+i];"
+    unrolled = repeat(body, ops_per_thread, contiguous = False)
+    return init + unrolled 
 
 class LoadVector(OpGen):
   def _emit(self):
@@ -69,15 +85,16 @@ class Enums(CodeGen):
 
 class Constants(CodeGen):
   def __init__(self, **kw):
-    CodeGen.__init__(self, kw)
+    CodeGen.__init__(self, **kw)
     
   def _emit(self):
     return '''
-static const int kThreadsX = 8; // 16;
-static const int kThreadsY = 8; // 16;
+static const int kThreadsX = %(threads_x)s; // 16;
+static const int kThreadsY = %(threads_y)s; // 16;
+
 
 // seems to give slightly better performance than kOpsPerThread = 8
-static const int kOpsPerThread = 5;
+static const int kOpsPerThread = %(ops_per_thread)d;
 static const int kThreadsPerBlock = kThreadsX * kThreadsY;
 static const int kVectorWidth = kThreadsPerBlock * kOpsPerThread;
 static const int kVectorPadding = 0;
@@ -86,8 +103,8 @@ static const int kNumIntRegisters = 10;
 static const int kNumLongRegisters = kNumIntRegisters;
 static const int kNumFloatRegisters = 10;
 static const int kNumDoubleRegisters = kNumFloatRegisters;
-'''
-
+''' % globals()
+ 
 class Registers(CodeGen):
   def __init__(self, scalar_registers_shared=True, **kw):
     CodeGen.__init__(self, scalar_registers_shared=scalar_registers_shared, **kw)
@@ -143,6 +160,8 @@ class VM(CodeGen):
     ${this.enums.emit()}
     ${this.constants.emit()}
 
+__shared__ float vectors[kNumVecRegisters][kVectorWidth + kVectorPadding];
+
 extern "C" __global__ void vm_kernel(
      const char* __restrict__ program,
      long program_nbytes,
@@ -153,14 +172,12 @@ extern "C" __global__ void vm_kernel(
   const int local_idx = threadIdx.y * blockDim.x + threadIdx.x;
   const int local_vector_offset = local_idx * kOpsPerThread;
 
-  __shared__ float vectors[kNumVecRegisters][kVectorWidth + kVectorPadding];
   int pc = 0;
 
   ${this.registers.emit()}
 
   int_scalars[BlockStart] = block_offset;
   int_scalars[VecWidth] = kVectorWidth;
-  int_scalars[BlockEltStart] = block_offset * kVectorWidth;
 
   ${this.dispatch.emit()}
 
