@@ -45,7 +45,7 @@ private:
 %template() InstructionT< Map >;
 %template() InstructionT< Map2 >;
 
-%ignore eval_impl;
+%ignore eval;
 
 %include "dispatch_table.h"
 %include "bytecode.h"

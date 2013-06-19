@@ -14,5 +14,3 @@ void* Program::to_gpu() {
   cudaMemcpy(_gpu_ptr, &_ops[0], nbytes(), cudaMemcpyHostToDevice);
   return _gpu_ptr;
 }
-
-static LoadVector l(0,0,0,0); 

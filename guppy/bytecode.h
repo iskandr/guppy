@@ -48,12 +48,6 @@ struct Instruction {
   }
 };
 
-static int put_into_dispatch_table(int code, EvalFn fn) {
-  printf("Initializing code %d with address %p", code, fn);  
-  cudaMemcpy(&dispatch_table[code], &fn, sizeof(EvalFn), cudaMemcpyHostToDevice); 
-  return 0; 
-}
-
 /*
 struct DispatchEntry {
   DispatchEntry() { 
@@ -66,30 +60,50 @@ struct DispatchEntry {
     cudaMemcpy(&dispatch_table[code], &fn, sizeof(EvalFn), cudaMemcpyHostToDevice); 
   }
 };
-*/ 
+*/
+
 /* Beware of curiously recurring template pattern!*/
 template<class SubType>
 struct InstructionT: Instruction {
   // a trick (cute or horrific, depending on your disposition), to
   // register each opcode's eval fn with the device dispatch table 
-  static int _garbage; // DispatchEntry put_into_dispatch_table;
+  // static DispatchEntry dispatch_entry; 
 
+  /*
+  // since the above trick isn't working... 
+  static int in_dispatch_table; 
+  */
   InstructionT() :
       Instruction(SubType::code, sizeof(SubType)) {
+    /*
+    printf("In dispatch table? %d\n", in_dispatch_table); 
+    if (!in_dispatch_table) { 
+      printf("Adding to dispatch table %d -> %p (size = %d)\n", SubType::code, &eval, sizeof(EvalFn)); 
+      cudaMemcpy((void*) &dispatch_table[SubType::code], (void*) &eval, sizeof(EvalFn), cudaMemcpyHostToDevice); 
+    }
+    printf("Creating InstructionT code = %d\n", SubType::code);
+    */ 
   }
   
   /* in a further act of madness, let's give every class a 
      static method which takes an opaque base pointer
      and we'll convert that into an ordinary method call
   */ 
+  /*
   __device__ static void eval(const Instruction* instr, EVAL_ARGS) { 
     ((const SubType*) instr)->eval_impl(EVAL_ARG_ACTUALS); 
+  
   } 
+  */ 
 }; 
-
+/*
 template <class SubType>
-int InstructionT<SubType>::_garbage = put_into_dispatch_table(SubType::code, &SubType::eval);
-
+int InstructionT<SubType>::in_dispatch_table = 0; 
+*/ 
+/* 
+template <class SubType>
+DispatchEntry InstructionT<SubType>::dispatch_entry(SubType::code, &SubType::eval); 
+*/ 
 #endif
 
 struct LoadVector: public InstructionT<LoadVector> {
@@ -106,7 +120,7 @@ struct LoadVector: public InstructionT<LoadVector> {
       source_array(source_array), target_vector(target_vector), start_idx(start_idx), nelts(nelts) {
   }
   
-  __device__ void eval_impl  (EVAL_ARGS) const  { 
+  __device__ inline void eval  (EVAL_ARGS) const  { 
     float* reg = vectors[this->target_vector];
     const float* src = arrays[this->source_array];
     const int start = int_scalars[this->start_idx];
@@ -117,6 +131,7 @@ struct LoadVector: public InstructionT<LoadVector> {
     }
   }
 };
+
 
 struct LoadVector2: public InstructionT<LoadVector2> {
   static const int code = 1;
@@ -130,6 +145,14 @@ struct LoadVector2: public InstructionT<LoadVector2> {
   const uint32_t start_idx;
   const uint16_t nelts;
 
+  /* 
+  void to_ptx_buffer(Buffer& b) {
+    for (int i = 0; i < kOpsPerThread; i++) { 
+      b.add("ld.global ...") 
+    }
+    
+  }
+  */ 
   LoadVector2(int source_array1,
               int target_vector1,
               int source_array2,
@@ -144,7 +167,7 @@ struct LoadVector2: public InstructionT<LoadVector2> {
       nelts(nelts) {
   }
 
-  __device__ void eval_impl (EVAL_ARGS) const {     
+  __device__ inline void eval (EVAL_ARGS) const {     
     float* reg1 = vectors[this->target_vector1];
     const float* src1 = arrays[this->source_array1];
 
@@ -158,17 +181,6 @@ struct LoadVector2: public InstructionT<LoadVector2> {
       reg1[i] = src1[start+i];
       reg2[i] = src2[start+i];
     }
-    /*
-        #pragma unroll 5
-    for (int i = local_idx; i < kVectorWidth; i += kOpsPerThread)
-        {
-          const int shared_idx = local_idx + i*kOpsPerThread;  
-          const int global_idx = start + shared_idx; 
-          reg1[shared_idx] = src1[global_idx]; 
-          reg2[shared_idx] = src2[global_idx];
-        }
-        //__syncthreads(); 
-    */    
   }
 };
 
@@ -188,7 +200,7 @@ struct StoreVector: public InstructionT<StoreVector> {
       target_array(target_array), source_vector(source_vector), start_idx(start_idx), nelts(nelts) {
   }
   
-  __device__ void eval_impl (EVAL_ARGS) const {
+  __device__ inline void eval (EVAL_ARGS) const {
 
   }
 };
@@ -206,7 +218,7 @@ struct Add: public InstructionT<Add> {
   Add(int result, int arg1, int arg2) :
       result(result), arg1(arg1), arg2(arg2) {
   }
-  __device__ void eval_impl (EVAL_ARGS) const {
+  __device__ inline void eval (EVAL_ARGS) const {
 
   }
 
@@ -221,7 +233,7 @@ struct IAdd: public InstructionT<IAdd> {
   IAdd(int result, int arg) :
       result(result), arg(arg) {
   }
-  __device__ void eval_impl (EVAL_ARGS) const {
+  __device__ inline void eval (EVAL_ARGS) const {
 
   }
 
@@ -229,7 +241,7 @@ struct IAdd: public InstructionT<IAdd> {
 
 struct Sub: public InstructionT<Sub> {
   static const int code = 4;
-  __device__ void eval_impl (EVAL_ARGS) const {
+  __device__ inline void eval (EVAL_ARGS) const {
 
   }
 };
@@ -285,7 +297,7 @@ struct Map: public InstructionT<Map> {
       output_elt_reg(output_elt),
       n_ops(n_ops) {
   }
-  __device__ void eval_impl (EVAL_ARGS) const {
+  __device__ inline void eval (EVAL_ARGS) const {
 
   }
 };
@@ -323,7 +335,7 @@ struct Map2: public InstructionT<Map2> {
       output_elt_reg(output_elt_reg),
       n_ops(n_ops) {
   }
-  __device__ void eval_impl (EVAL_ARGS) const {
+  __device__ inline void eval (EVAL_ARGS) const {
 
   }
 };

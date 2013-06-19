@@ -15,7 +15,7 @@ __device__ inline void run_local_instruction(Instruction* instr, EVAL_ARGS) {
     }
 }    }
 
-__device__   inline size_t run_subprogram(char* program, int pc, int n_ops, EVAL_ARGS) {
+__device__   inline size_t run_subprogram(const char* __restrict__ program, int pc, int n_ops, EVAL_ARGS) {
   for (int i = 0; i < n_ops; ++i) {
     Instruction* instr = (Instruction*) &program[pc];
     pc += instr->size;
@@ -56,15 +56,16 @@ __global__ void vm_kernel(const char* __restrict__ program,
   while (pc < program_nbytes) {
     instr = (const Instruction*) &program[pc];
     pc += instr->size;
-    dispatch_table[instr->tag](instr, EVAL_ARG_ACTUALS); 
-  }
-  /*
+    // dispatch_table[instr->tag](instr, EVAL_ARG_ACTUALS); 
+  
     switch (instr->tag) {
       case LoadVector::code: {
+        ((const LoadVector*) instr)->eval(EVAL_ARG_ACTUALS); 
         break;
       }
       case LoadVector2::code: {
-break;
+        ((const LoadVector2*) instr)->eval(EVAL_ARG_ACTUALS); 
+        break;
       }
 
       case StoreVector::code: {
@@ -146,7 +147,8 @@ break;
         break;
       }
     } // switch
-  */ 
+   
+  } //while 
 } // run
 
 } // extern
