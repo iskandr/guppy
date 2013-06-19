@@ -25,16 +25,55 @@ struct Instruction;
 typedef void (*EvalFn)(const Instruction*, EVAL_ARGS);
 static const int kMaxBytecodes = 200;
 
-struct Instruction {
-  /* every instruction must have a unique code and a size in number of bytes */
-  uint16_t tag;
-  uint16_t size;
+enum IntRegisters {
+  BlockStart,
+  VecWidth,
+  BlockEltStart,
+  i0,
+  i1,
+  i2,
+  i3
+};
+enum FloatRegisters {
+  f0,
+  f1,
+  f2,
+  f3
+};
+enum VecRegisters {
+  v0,
+  v1,
+  v2,
+  v3
+};
+enum Arrays {
+  a0,
+  a1,
+  a2,
+  a3
 };
 
-struct LoadVector: public Instruction {
+#ifndef SWIG
+struct Instruction {
+  /* every instruction must have a unique code and a size in number of bytes */
+  const uint16_t tag;
+  const uint16_t size;
 
-  // static DispatchEntry put_into_dispatch_table;
-  /* load elements from a global array into a local vector */
+  Instruction(int t, int s) :
+      tag(t), size(s) {
+  }
+};
+
+template<class SubClass>
+struct InstructionT: public Instruction {
+  InstructionT() :
+      Instruction(SubClass::opcode, sizeof(SubClass)) {
+  }
+};
+#endif
+
+struct LoadVector: public InstructionT<LoadVector> {
+  static const int opcode = 0;
   const uint16_t source_array;
   const uint16_t target_vector;
   const uint32_t start_idx;
@@ -45,8 +84,8 @@ struct LoadVector: public Instruction {
   }
 };
 
-struct LoadVector2: public Instruction {
-
+struct LoadVector2: public InstructionT<LoadVector2> {
+  static const int opcode = 1;
   /* load elements from a global array into a local vector */
   const uint16_t source_array1;
   const uint16_t target_vector1;
@@ -56,7 +95,7 @@ struct LoadVector2: public Instruction {
   const uint32_t start_idx;
   const uint16_t nelts;
 
-  /* 
+  /*
    void to_ptx_buffer(Buffer& b) {
    for (int i = 0; i < kOpsPerThread; i++) {
    b.add("ld.global ...")
@@ -79,8 +118,8 @@ struct LoadVector2: public Instruction {
   }
 };
 
-struct StoreVector: public Instruction {
-
+struct StoreVector: public InstructionT<StoreVector> {
+  static const int opcode = 2;
   /* store elements of a vector into a global array
    * starting from target_array[start_idx] until
    * target_array[start_idx + nelts]
@@ -95,8 +134,8 @@ struct StoreVector: public Instruction {
   }
 };
 
-struct Add: public Instruction {
-
+struct Add: public InstructionT<Add> {
+  static const int opcode = 3;
   /* for now this will only work as a scalar operation,
    * expecting scalar float registers as arguments x,y,target
    */
@@ -109,8 +148,8 @@ struct Add: public Instruction {
   }
 };
 
-struct IAdd: public Instruction {
-
+struct IAdd: public InstructionT<IAdd> {
+  static const int opcode = 4;
   /* in-place variant of add: x = x + y */
   const uint16_t arg;
   const uint16_t result;
@@ -120,40 +159,40 @@ struct IAdd: public Instruction {
   }
 };
 
-struct Sub: public Instruction {
-
+struct Sub: public InstructionT<Sub> {
+  static const int opcode = 5;
 };
 
-struct ISub: public Instruction {
-
+struct ISub: public InstructionT<ISub> {
+  static const int opcode = 6;
 };
 
-struct Mul: public Instruction {
-
+struct Mul: public InstructionT<Mul> {
+  static const int opcode = 7;
 };
 
-struct IMul: public Instruction {
-
+struct IMul: public InstructionT<IMul> {
+  static const int opcode = 8;
 };
 
-struct Div: public Instruction {
-
+struct Div: public InstructionT<Div> {
+  static const int opcode = 9;
 };
 
-struct IDiv: public Instruction {
-
+struct IDiv: public InstructionT<IDiv> {
+  static const int opcode = 10;
 };
 
-struct MultiplyAdd: public Instruction {
-
+struct MultiplyAdd: public InstructionT<MultiplyAdd> {
+  static const int opcode = 11;
 };
 
-struct IMultiplyAdd: public Instruction {
-
+struct IMultiplyAdd: public InstructionT<IMultiplyAdd> {
+  static const int opcode = 12;
 };
 
-struct Map: public Instruction {
-
+struct Map: public InstructionT<Map> {
+  static const int opcode = 13;
   /* map over elements of source vector 
    * (which are loaded into scalar register input_elt)
    * run given subprogram, 
@@ -176,8 +215,8 @@ struct Map: public Instruction {
   }
 };
 
-struct Map2: public Instruction {
-
+struct Map2: public InstructionT<Map2> {
+  static const int opcode = 14;
   /* map over elements of two source vectors 
    * (which are loaded into scalar register input_elt) 
    * run given subprogram, 

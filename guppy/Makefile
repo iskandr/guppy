@@ -8,11 +8,13 @@ all:
 	mkdir -p build/dbg
 	cd build/dbg && $(MAKE) -f ../../Makefile
 	ln -sf build/dbg bin
+	cp bin/core.py .
 else
 all: 
 	mkdir -p build/opt
 	cd build/opt &&  $(MAKE) -f ../../Makefile
 	ln -sf build/opt bin
+	cp bin/core.py .
 endif
 
 clean:

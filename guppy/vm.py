@@ -2,6 +2,7 @@
 
 from guppy import bytecode
 from pycuda import autoinit, gpuarray, driver, compiler
+import os.path
 import time
 
 class CodeGen(object):
@@ -59,39 +60,12 @@ INSTRUCTIONS = [LoadVector, LoadVector2]
 
 class BytecodeHeader(CodeGen):
   def _emit(self):
-    return open('bytecode.h').read()
+    here = os.path.dirname(os.path.abspath(__file__))
+    return open(here + '/bytecode.h').read()
 
 class Enums(CodeGen):
   def _emit(self):
-    return '''
-    enum IntRegisters {
-  BlockStart,
-  VecWidth,
-  BlockEltStart,
-  i0,
-  i1,
-  i2,
-  i3
-};
-enum FloatRegisters {
-  f0,
-  f1,
-  f2,
-  f3
-};
-enum VecRegisters {
-  v0,
-  v1,
-  v2,
-  v3
-};
-enum Arrays {
-  a0,
-  a1,
-  a2,
-  a3
-};
-'''
+    return ''
 
 class Constants(CodeGen):
   def _emit(self):
@@ -190,9 +164,11 @@ extern "C" __global__ void vm_kernel(
   }
   '''
 
+  def compile(self):
+    mod = compiler.SourceModule(self.emit(), no_extern_c=True)
+    return mod.get_function('vm_kernel')
 
 if __name__ == '__main__':
   vm = VM()
   code = vm.emit()
-  print code
-  compiler.SourceModule(code, keep=True, no_extern_c=True)
+  vm.compile()
